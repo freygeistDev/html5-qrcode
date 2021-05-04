@@ -1,0 +1,77 @@
+.qr-reader__parent {
+  position: relative;
+  padding: 0;
+  border: 1px solid silver;
+  max-width: 100%;
+}
+.qr-reader__scanregion {
+  min-height: 100px;
+}
+.qr-reader__scanregion,
+.qr-reader__dashboard,
+.qr-reader__section {
+  width: 100%;
+}
+.qr-reader__title {
+  margin: 0;
+  padding: 5px;
+  font-size: 20px;
+  border-bottom: 1px solid rgba(192, 192, 192, 0.18);
+}
+.qr-reader__status {
+  float: right;
+  padding: 5px 7px;
+  background: #dedede6b;
+  border: 1px solid #00000000;
+  color: rgb(17, 17, 17);
+}
+.qr-reader__header_message {
+  display: none;
+  padding: 2px 10px;
+  margin-top: 4px;
+  border-top: 1px solid #f6f6f6;
+}
+.qr-reader__status,
+.qr-reader__header_message {
+  font-size: 14px;
+}
+.qr-reader__section {
+  padding: 10px;
+}
+.qr-reader__title,
+.qr-reader__section {
+  text-align: left;
+}
+.qr-reader__file_input {
+  color: #000000;
+  width: 200px;
+}
+.qr-reader__file_link {
+  text-decoration: underline;
+}
+.qr-reader__camera_selection {
+  margin-right: 10px;
+}
+.qr-reader__camera_scan_image,
+.qr-reader__file_scan_image {
+  width: 64;
+  opacity: 0.3;
+}
+.qr-reader__status_success {
+  background: #6aaf5042;
+  color: #477735;
+}
+.qr-reader__status_warning {
+  background: #cb243124;
+  color: #cb2431;
+}
+.qr-reader__status_default {
+  background: #eef;
+  color: rgb(17, 17, 17);
+}
+.qr-reader__text_center {
+  text-align: center;
+}
+.qr-reader__noborder {
+  border: none;
+}

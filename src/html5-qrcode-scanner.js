@@ -162,31 +162,54 @@ class Html5QrcodeScanner {
 
     //#region private control methods
     __createBasicLayout(parent) {
-        parent.style.position = "relative";
-        parent.style.padding = "0px";
-        parent.style.border = "1px solid silver";
+        const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
+
+        if ($this.config.inlineCSS) {
+            parent.style.position = "relative";
+            parent.style.padding = "0px";
+            parent.style.border = "1px solid silver";
+        } else {
+            parent.classList.add("qr-reader__parent");
+        }
         this.__createHeader(parent);
 
         const qrCodeScanRegion = document.createElement("div");
         const scanRegionId = this.__getScanRegionId();
         qrCodeScanRegion.id = scanRegionId;
-        qrCodeScanRegion.style.width = "100%";
-        qrCodeScanRegion.style.minHeight = "100px";
-        qrCodeScanRegion.style.textAlign = "center";
+        if ($this.config.inlineCSS) {
+            qrCodeScanRegion.style.width = "100%";
+            qrCodeScanRegion.style.minHeight = "100px";
+            qrCodeScanRegion.style.textAlign = "center";
+        } else {
+            qrCodeScanRegion.classList.add("qr-reader__scanregion");
+            qrCodeScanRegion.classList.add("qr-reader__text_center");
+        }
         parent.appendChild(qrCodeScanRegion);
         this.__insertCameraScanImageToScanRegion();
 
         const qrCodeDashboard = document.createElement("div");
         const dashboardId = this.__getDashboardId();
         qrCodeDashboard.id = dashboardId;
-        qrCodeDashboard.style.width = "100%";
+        if ($this.config.inlineCSS) {
+            qrCodeDashboard.style.width = "100%";
+        } else {
+            qrCodeDashboard.classList.add("qr-reader__dashboard");
+        }
         parent.appendChild(qrCodeDashboard);
 
         this.__setupInitialDashboard(qrCodeDashboard);
 	}
 	
 	__resetBasicLayout(parent) {
-        parent.style.border = "none";
+        const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
+
+        if ($this.config.inlineCSS) {
+            parent.style.border = "none";
+        } else {
+            parent.classList.add("qr-reader__noborder");
+        }
 	}
 
     __setupInitialDashboard(dashboard) {
@@ -196,53 +219,84 @@ class Html5QrcodeScanner {
     }
 
     __createHeader(dashboard) {
+        const $this = this;
+        $this.config.titleHTML = ('titleHTML' in $this.config) ? $this.config.titleHTML : "Code Scanner";
+        $this.config.titleLink = ('titleLink' in $this.config) ? $this.config.titleLink : "https://github.com/mebjas/html5-qrcode";
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
+
         const header = document.createElement("div");
-        header.style.textAlign = "left";
-        header.style.margin = "0px";
-        header.style.padding = "5px";
-        header.style.fontSize = "20px";
-        header.style.borderBottom = "1px solid rgba(192, 192, 192, 0.18)";
+        if ($this.config.inlineCSS) {
+            header.style.textAlign = "left";
+            header.style.margin = "0px";
+            header.style.padding = "5px";
+            header.style.fontSize = "20px";
+            header.style.borderBottom = "1px solid rgba(192, 192, 192, 0.18)";
+        } else {
+            header.classList.add("qr-reader__title");
+        }
         dashboard.appendChild(header);
 
-        const titleSpan = document.createElement("span");
-        const titleLink = document.createElement("a");
-        titleLink.innerHTML = "Code Scanner";
-        titleLink.href="https://github.com/mebjas/html5-qrcode";
-        titleSpan.appendChild(titleLink);
-        header.appendChild(titleSpan);
+        if ($this.config.titleHTML) {
+            const titleSpan = document.createElement("span");
+            if ($this.config.titleLink) {
+                const titleLink = document.createElement("a");
+                titleLink.innerHTML = $this.config.titleHTML;
+                titleLink.href = $this.config.titleLink;
+                titleSpan.appendChild(titleLink);
+            } else {
+                titleSpan.innerHTML = $this.config.titleHTML;
+            }
+            header.appendChild(titleSpan);
+        }
 
         const statusSpan = document.createElement("span");
         statusSpan.id = this.__getStatusSpanId();
-        statusSpan.style.float = "right";
-        statusSpan.style.padding = "5px 7px";
-        statusSpan.style.fontSize = "14px";
-        statusSpan.style.background = "#dedede6b";
-        statusSpan.style.border = "1px solid #00000000";
-        statusSpan.style.color = "rgb(17, 17, 17)";
+        if ($this.config.inlineCSS) {
+            statusSpan.style.float = "right";
+            statusSpan.style.padding = "5px 7px";
+            statusSpan.style.fontSize = "14px";
+            statusSpan.style.background = "#dedede6b";
+            statusSpan.style.border = "1px solid #00000000";
+            statusSpan.style.color = "rgb(17, 17, 17)";
+        } else {
+            statusSpan.classList.add("qr-reader__status");
+        }
         header.appendChild(statusSpan);
         this.__setStatus("IDLE");
 
         const headerMessageContainer = document.createElement("div");
         headerMessageContainer.id = this.__getHeaderMessageContainerId();
-        headerMessageContainer.style.display = "none";
-        headerMessageContainer.style.fontSize = "14px";
-        headerMessageContainer.style.padding = "2px 10px";
-        headerMessageContainer.style.marginTop = "4px";
-        headerMessageContainer.style.borderTop = "1px solid #f6f6f6";
+        if ($this.config.inlineCSS) {
+            headerMessageContainer.style.display = "none";
+            headerMessageContainer.style.fontSize = "14px";
+            headerMessageContainer.style.padding = "2px 10px";
+            headerMessageContainer.style.marginTop = "4px";
+            headerMessageContainer.style.borderTop = "1px solid #f6f6f6";
+        } else {
+            headerMessageContainer.classList.add("qr-reader__header_message");
+        }
         header.appendChild(headerMessageContainer);
     }
 
     __createSection(dashboard) {
+        const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
+
         const section = document.createElement("div");
         section.id = this.__getDashboardSectionId();
-        section.style.width = "100%";
-        section.style.padding = "10px";
-        section.style.textAlign = "left";
+        if ($this.config.inlineCSS) {
+            section.style.width = "100%";
+            section.style.padding = "10px";
+            section.style.textAlign = "left";
+        } else {
+            section.classList.add("qr-reader__section");
+        }
         dashboard.appendChild(section);
     }
 
     __createSectionControlPanel() {
         const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         const section = document.getElementById(this.__getDashboardSectionId());
         const sectionControlPanel = document.createElement("div");
         section.appendChild(sectionControlPanel);
@@ -255,7 +309,11 @@ class Html5QrcodeScanner {
 
         // Assuming when the object is created permission is needed.
         const requestPermissionContainer = document.createElement("div");
-        requestPermissionContainer.style.textAlign = "center";
+        if ($this.config.inlineCSS) {
+            requestPermissionContainer.style.textAlign = "center";
+        } else {
+            requestPermissionContainer.classList.add("qr-reader__text_center");
+        }
 
         const requestPermissionButton = document.createElement("button");
         requestPermissionButton.innerHTML = "Request Camera Permissions";
@@ -285,7 +343,11 @@ class Html5QrcodeScanner {
 
         const fileBasedScanRegion = document.createElement("div");
         fileBasedScanRegion.id = this.__getDashboardSectionFileScanRegionId();
-        fileBasedScanRegion.style.textAlign = "center";
+        if ($this.config.inlineCSS) {
+            fileBasedScanRegion.style.textAlign = "center";
+        } else {
+            requestPermissionContainer.classList.add("qr-reader__text_center");
+        }
         fileBasedScanRegion.style.display
             = this.currentScanType == Html5QrcodeScanner.SCAN_TYPE_CAMERA
                 ? "none" : "block";
@@ -295,7 +357,11 @@ class Html5QrcodeScanner {
         fileScanInput.id = this.__getFileScanInputId();
         fileScanInput.accept = "image/*";
         fileScanInput.type = "file";
-        fileScanInput.style.width = "200px";
+        if ($this.config.inlineCSS) {
+            fileScanInput.style.width = "200px";
+        } else {
+            fileScanInput.classList.add("qr-reader__file_input");
+        }
         fileScanInput.disabled
             = this.currentScanType == Html5QrcodeScanner.SCAN_TYPE_CAMERA;
         const fileScanLabel = document.createElement("span");
@@ -325,14 +391,25 @@ class Html5QrcodeScanner {
 
     __renderCameraSelection(cameras) {
         const $this = this;
+        const config = $this.config ?
+                $this.config : { fps: 10, qrbox: 250 };
+        config.inlineCSS = ('inlineCSS' in config) ? config.inlineCSS : true;
         const scpCameraScanRegion = document.getElementById(
             this.__getDashboardSectionCameraScanRegionId());
-        scpCameraScanRegion.style.textAlign = "center";
+        if (config.inlineCSS) {
+            scpCameraScanRegion.style.textAlign = "center";
+        } else {
+            scpCameraScanRegion.classList.add("qr-reader__text_center");
+        }
 
         const cameraSelectionContainer = document.createElement("span");
         cameraSelectionContainer.innerHTML
             = `Select Camera (${cameras.length}) &nbsp;`;
-        cameraSelectionContainer.style.marginRight = "10px";
+        if (config.inlineCSS) {
+            cameraSelectionContainer.style.marginRight = "10px";
+        } else {
+            cameraSelectionContainer.classList.add("qr-reader__camera_selection");
+        }
 
         const cameraSelectionSelect = document.createElement("select");
         cameraSelectionSelect.id = this.__getCameraSelectionId();
@@ -365,9 +442,6 @@ class Html5QrcodeScanner {
             cameraSelectionSelect.disabled = true;
             cameraActionStartButton.disabled = true;
             $this._showHideScanTypeSwapLink(false);
-
-            const config = $this.config ?
-                $this.config : { fps: 10, qrbox: 250 };
 
             const cameraId = cameraSelectionSelect.value;
             $this.html5Qrcode.start(
@@ -413,6 +487,7 @@ class Html5QrcodeScanner {
 
     __createSectionSwap() {
         const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         const TEXT_IF_CAMERA_SCAN_SELECTED
             = "Scan an Image File";
         const TEXT_IF_FILE_SCAN_SELECTED
@@ -420,9 +495,17 @@ class Html5QrcodeScanner {
 
         const section = document.getElementById(this.__getDashboardSectionId());
         const switchContainer = document.createElement("div");
-        switchContainer.style.textAlign = "center";
+        if ($this.config.inlineCSS) {
+            switchContainer.style.textAlign = "center";
+        } else {
+            switchContainer.classList.add("qr-reader__text_center");
+        }
         const swithToFileBasedLink = document.createElement("a");
-        swithToFileBasedLink.style.textDecoration = "underline";
+        if ($this.config.inlineCSS) {
+            swithToFileBasedLink.style.textDecoration = "underline";
+        } else {
+            swithToFileBasedLink.classList.add("qr-reader__file_link");
+        }
         swithToFileBasedLink.id = this.__getDashboardSectionSwapLinkId();
         swithToFileBasedLink.innerHTML
             = this.currentScanType == Html5QrcodeScanner.SCAN_TYPE_CAMERA
@@ -469,26 +552,37 @@ class Html5QrcodeScanner {
     }
 
     __setStatus(statusText, statusClass) {
+        const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         if (!statusClass) {
             statusClass = Html5QrcodeScanner.STATUS_DEFAULT;
         }
         const statusSpan = document.getElementById(this.__getStatusSpanId());
         statusSpan.innerHTML = statusText;
 
-        switch (statusClass) {
-            case Html5QrcodeScanner.STATUS_SUCCESS:
-                statusSpan.style.background = "#6aaf5042";
-                statusSpan.style.color = "#477735";
-                break;
-            case Html5QrcodeScanner.STATUS_WARNING:
-                statusSpan.style.background = "#cb243124";
-                statusSpan.style.color = "#cb2431";
-                break;
-            case Html5QrcodeScanner.STATUS_DEFAULT:
-            default:
-                statusSpan.style.background = "#eef";
-                statusSpan.style.color = "rgb(17, 17, 17)";
-                break;
+        if (!$this.config.inlineCSS) {
+            const oldClass = new RegExp(/\bqr-reader__status_.+?\b/, 'g');
+            // remove/reset class
+            statusSpan.className = statusSpan.className.replace(oldClass, '')
+
+            // add new class
+            statusSpan.classList.add("qr-reader__" + statusClass.toLowerCase());
+        } else {
+            switch (statusClass) {
+                case Html5QrcodeScanner.STATUS_SUCCESS:
+                    statusSpan.style.background = "#6aaf5042";
+                    statusSpan.style.color = "#477735";
+                    break;
+                case Html5QrcodeScanner.STATUS_WARNING:
+                    statusSpan.style.background = "#cb243124";
+                    statusSpan.style.color = "#cb2431";
+                    break;
+                case Html5QrcodeScanner.STATUS_DEFAULT:
+                default:
+                    statusSpan.style.background = "#eef";
+                    statusSpan.style.color = "rgb(17, 17, 17)";
+                    break;
+            }
         }
     }
 
@@ -499,6 +593,8 @@ class Html5QrcodeScanner {
     }
 
     __setHeaderMessage(messageText, statusClass) {
+        const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         if (!statusClass) {
             statusClass = Html5QrcodeScanner.STATUS_DEFAULT;
         }
@@ -507,20 +603,29 @@ class Html5QrcodeScanner {
         messageDiv.innerHTML = messageText;
         messageDiv.style.display = "block";
 
-        switch (statusClass) {
-            case Html5QrcodeScanner.STATUS_SUCCESS:
-                messageDiv.style.background = "#6aaf5042";
-                messageDiv.style.color = "#477735";
-                break;
-            case Html5QrcodeScanner.STATUS_WARNING:
-                messageDiv.style.background = "#cb243124";
-                messageDiv.style.color = "#cb2431";
-                break;
-            case Html5QrcodeScanner.STATUS_DEFAULT:
-            default:
-                messageDiv.style.background = "#00000000";
-                messageDiv.style.color = "rgb(17, 17, 17)";
-                break;
+        if (!$this.config.inlineCSS) {
+            const oldClass = new RegExp(/\bqr-reader__status_.+?\b/, 'g');
+            // remove/reset class
+            messageDiv.className = messageDiv.className.replace(oldClass, '')
+
+            // add new class
+            messageDiv.classList.add("qr-reader__" + statusClass.toLowerCase());
+        } else {
+            switch (statusClass) {
+                case Html5QrcodeScanner.STATUS_SUCCESS:
+                    messageDiv.style.background = "#6aaf5042";
+                    messageDiv.style.color = "#477735";
+                    break;
+                case Html5QrcodeScanner.STATUS_WARNING:
+                    messageDiv.style.background = "#cb243124";
+                    messageDiv.style.color = "#cb2431";
+                    break;
+                case Html5QrcodeScanner.STATUS_DEFAULT:
+                default:
+                    messageDiv.style.background = "#00000000";
+                    messageDiv.style.color = "rgb(17, 17, 17)";
+                    break;
+            }
         }
     }
 
@@ -536,6 +641,7 @@ class Html5QrcodeScanner {
 
     __insertCameraScanImageToScanRegion() {
         const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         const qrCodeScanRegion = document.getElementById(
             this.__getScanRegionId());
 
@@ -550,13 +656,18 @@ class Html5QrcodeScanner {
             qrCodeScanRegion.innerHTML = "<br>";
             qrCodeScanRegion.appendChild($this.cameraScanImage);
         }
-        this.cameraScanImage.width = 64;
-        this.cameraScanImage.style.opacity = 0.3;
+        if ($this.config.inlineCSS) {
+            this.cameraScanImage.width = 64;
+            this.cameraScanImage.style.opacity = 0.3;
+        } else {
+            this.cameraScanImage.classList.add("qr-reader__camera_scan_image");
+        }
         this.cameraScanImage.src = Html5QrcodeScanner.ASSET_CAMERA_SCAN;
     }
 
     __insertFileScanImageToScanRegion() {
         const $this = this;
+        $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         const qrCodeScanRegion = document.getElementById(
             this.__getScanRegionId());
 
@@ -571,8 +682,12 @@ class Html5QrcodeScanner {
             qrCodeScanRegion.innerHTML = "<br>";
             qrCodeScanRegion.appendChild($this.fileScanImage);
         }
-        this.fileScanImage.width = 64;
-        this.fileScanImage.style.opacity = 0.3;
+        if ($this.config.inlineCSS) {
+            this.fileScanImage.width = 64;
+            this.fileScanImage.style.opacity = 0.3;
+        } else {
+            this.cameraScanImage.classList.add("qr-reader__file_scan_image");
+        }
         this.fileScanImage.src = Html5QrcodeScanner.ASSET_FILE_SCAN;
     }
 
