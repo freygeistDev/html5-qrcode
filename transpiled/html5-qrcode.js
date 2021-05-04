@@ -123,11 +123,11 @@ var Html5Qrcode = /*#__PURE__*/function () {
       var _this = this;
 
       if (!cameraIdOrConfig) {
-        throw "cameraIdOrConfig is required";
+        throw this.lang == "de" ? "cameraIdOrConfig ist erforderlich" : "cameraIdOrConfig is required";
       }
 
       if (!qrCodeSuccessCallback || typeof qrCodeSuccessCallback != "function") {
-        throw "qrCodeSuccessCallback is required and should be a function.";
+        throw this.lang == "de" ? "qrCodeSuccessCallback ist erforderlich und sollte eine Funktion sein." : "qrCodeSuccessCallback is required and should be a function.";
       }
 
       if (!qrCodeErrorCallback) {
@@ -146,7 +146,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
 
       if (config.videoConstraints) {
         if (!this._isMediaStreamConstraintsValid(config.videoConstraints)) {
-          Html5Qrcode._logError("'videoConstraints' is not valid 'MediaStreamConstraints, " + "it will be ignored.'",
+          Html5Qrcode._logError(this.lang == "de" ? "'videoConstraints' ist nicht gültig. 'MediaStreamConstraints' wird ignoriert.'" : "'videoConstraints' is not valid 'MediaStreamConstraints, it will be ignored.'",
           /* experimental= */
           true);
         } else {
@@ -167,11 +167,11 @@ var Html5Qrcode = /*#__PURE__*/function () {
         var qrboxSize = config.qrbox;
 
         if (qrboxSize < Html5Qrcode.MIN_QR_BOX_SIZE) {
-          throw "minimum size of 'config.qrbox' is" + " ".concat(Html5Qrcode.MIN_QR_BOX_SIZE, "px.");
+          throw (this.lang == "de" ? "Die Mindestgröße von 'config.qrbox' beträgt" : "minimum size of 'config.qrbox' is") + " ".concat(Html5Qrcode.MIN_QR_BOX_SIZE, "px.");
         }
 
         if (qrboxSize > width) {
-          throw "'config.qrbox' should not be greater than the " + "width of the HTML element.";
+          throw this.lang == "de" ? "'config.qrbox' sollte nicht größer als die Breite des HTML-Elements sein." : "'config.qrbox' should not be greater than the width of the HTML element.";
         }
       } //#region local methods
 
@@ -188,7 +188,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
 
         if (qrboxSize > height) {
           // TODO(mebjas): Migrate to common logging.
-          console.warn("[Html5Qrcode] config.qrboxsize is greater " + "than video height. Shading will be ignored");
+          console.warn(_this.lang == "de" ? "[Html5Qrcode] config.qrboxsize ist größer als die Videohöhe. Schattierungen werden ignoriert." : "[Html5Qrcode] config.qrboxsize is greater than video height. Shading will be ignored");
         }
 
         var shouldShadingBeApplied = isShadedBoxEnabled && qrboxSize <= height;
@@ -244,7 +244,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
           /* qrMatch= */
           false);
 
-          qrCodeErrorCallback("QR code parse error, error = ".concat(exception));
+          qrCodeErrorCallback(_this.lang == "de" ? "QR-Code-Analysefehler, Fehler = ".concat(exception) : "QR code parse error, error = ".concat(exception));
           return false;
         }
       }; // Method that scans forever.
@@ -343,7 +343,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
               return setupVideo();
             })["catch"](function (error) {
               // TODO(mebjas): Migrate to common logging.
-              console.log("[Warning] [Html5Qrcode] Constriants could not " + "be satisfied, ignoring constraints", error);
+              console.log(_this.lang == "de" ? "[Warnung] [Html5Qrcode] Einschränkungen konnten nicht erfüllt werden, Einschränkungen werden ignoriert." : "[Warning] [Html5Qrcode] Constriants could not be satisfied, ignoring constraints", error);
               setupVideo();
             });
           }
@@ -365,11 +365,11 @@ var Html5Qrcode = /*#__PURE__*/function () {
               resolve();
             })["catch"](reject);
           })["catch"](function (err) {
-            reject("Error getting userMedia, error = ".concat(err));
+            reject(_this.lang == "de" ? "Fehler beim Abrufen von userMedia, error = ".concat(err) : "Error getting userMedia, error = ".concat(err));
           });
         } else if (navigator.getUserMedia) {
           if (typeof cameraIdOrConfig != "string") {
-            throw "The device doesn't support navigator.mediaDevices" + ", only supported cameraIdOrConfig in this case is" + " deviceId parameter (string).";
+            throw _this.lang == "de" ? "Das Gerät unterstützt keine  navigator.mediaDevices" + ", nur unterstützte cameraIdOrConfig ist in diesem Fall" + " der deviceId-Parameter (string)." : "The device doesn't support navigator.mediaDevices" + ", only supported cameraIdOrConfig in this case is" + " deviceId parameter (string).";
           }
 
           var getCameraConfig = {
@@ -385,10 +385,10 @@ var Html5Qrcode = /*#__PURE__*/function () {
               resolve();
             })["catch"](reject);
           }, function (err) {
-            reject("Error getting userMedia, error = ".concat(err));
+            reject(_this.lang == "de" ? "Fehler beim Abrufen von userMedia, error = ".concat(err) : "Error getting userMedia, error = ".concat(err));
           });
         } else {
-          reject("Web camera streaming not supported by the browser.");
+          reject(_this.lang == "de" ? "Webkamera-Streaming wird vom Browser nicht unterstützt." : "Web camera streaming not supported by the browser.");
         }
       });
     }
@@ -476,16 +476,18 @@ var Html5Qrcode = /*#__PURE__*/function () {
     value: function scanFile(imageFile,
     /* default=true */
     showImage) {
+      var _this2 = this;
+
       var $this = this;
 
       if (!imageFile || !(imageFile instanceof File)) {
-        throw "imageFile argument is mandatory and should be instance " + "of File. Use 'event.target.files[0]'";
+        throw this.lang == "de" ? "Das imageFile-Argument ist obligatorisch und sollte eine Instanz " + "von File sein. Verwende 'event.target.files[0]'" : "imageFile argument is mandatory and should be instance " + "of File. Use 'event.target.files[0]'";
       }
 
       showImage = showImage === undefined ? true : showImage;
 
       if ($this._isScanning) {
-        throw "Close ongoing scan before scanning a file.";
+        throw this.lang == "de" ? "Schließen Sie den laufenden Scan, bevor Sie eine Datei scannen." : "Close ongoing scan before scanning a file.";
       }
 
       var computeCanvasDrawConfig = function computeCanvasDrawConfig(imageWidth, imageHeight, containerWidth, containerHeight) {
@@ -513,7 +515,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
             imageHeight = containerHeight;
           }
 
-          Html5Qrcode._log("Image downsampled from " + "".concat(formerImageWidth, "X").concat(formerImageHeight) + " to ".concat(imageWidth, "X").concat(imageHeight, "."));
+          Html5Qrcode._log(_this2.lang == "de" ? "Bild von " + "".concat(formerImageWidth, "X").concat(formerImageHeight) + " auf ".concat(imageWidth, "X").concat(imageHeight, " heruntergerechnet.") : "Image downsampled from " + "".concat(formerImageWidth, "X").concat(formerImageHeight) + " to ".concat(imageWidth, "X").concat(imageHeight, "."));
 
           return computeCanvasDrawConfig(imageWidth, imageHeight, containerWidth, containerHeight);
         }
@@ -597,7 +599,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
             var result = $this.qrcode.decode(binaryBitmap);
             resolve(result.text);
           } catch (exception) {
-            reject("QR code parse error, error = ".concat(exception));
+            reject(_this2.lang == "de" ? "QR-Code-Analysefehler, Fehler = ".concat(exception) : "QR code parse error, error = ".concat(exception));
           }
         };
 
@@ -642,11 +644,11 @@ var Html5Qrcode = /*#__PURE__*/function () {
      */
     function getRunningTrackCapabilities() {
       if (this._localMediaStream == null) {
-        throw "Scanning is not in running state, call this API only when" + " QR code scanning using camera is in running state.";
+        throw this.lang == "de" ? "Das Scannen ist nicht im am laufenden Zustand. Rufe diese API nur auf, wenn das" + " Scannen des QR-Codes mit der Kamera im laufenden Zustand ist." : "Scanning is not in running state, call this API only when" + " QR code scanning using camera is in running state.";
       }
 
       if (this._localMediaStream.getVideoTracks().length == 0) {
-        throw "No video tracks found";
+        throw this.lang == "de" ? "Keine Videospuren gefunden" : "No video tracks found";
       }
 
       var videoTrack = this._localMediaStream.getVideoTracks()[0];
@@ -672,29 +674,29 @@ var Html5Qrcode = /*#__PURE__*/function () {
   }, {
     key: "applyVideoConstraints",
     value: function applyVideoConstraints(videoConstaints) {
-      var _this2 = this;
+      var _this3 = this;
 
       if (!videoConstaints) {
-        throw "videoConstaints is required argument.";
+        throw this.lang == "de" ? "videoConstaints ist ein erforderliches Argument." : "videoConstaints is required argument.";
       } else if (!this._isMediaStreamConstraintsValid(videoConstaints)) {
-        throw "invalid videoConstaints passed, check logs for more details";
+        throw this.lang == "de" ? "Ungültige VideoConstaints, Protokolle auf weitere Details überprüfen" : "invalid videoConstaints passed, check logs for more details";
       }
 
       if (this._localMediaStream == null) {
-        throw "Scanning is not in running state, call this API only when" + " QR code scanning using camera is in running state.";
+        throw this.lang == "de" ? "Das Scannen ist nicht im am laufenden Zustand. Rufe diese API nur auf, wenn das" + " Scannen des QR-Codes mit der Kamera im laufenden Zustand ist." : "Scanning is not in running state, call this API only when" + " QR code scanning using camera is in running state.";
       }
 
       if (this._localMediaStream.getVideoTracks().length == 0) {
-        throw "No video tracks found";
+        throw this.lang == "de" ? "Keine Videospuren gefunden" : "No video tracks found";
       }
 
       return new Promise(function (resolve, reject) {
         if ("aspectRatio" in videoConstaints) {
-          reject("Chaning 'aspectRatio' in run-time is not yet " + "supported.");
+          reject(_this3.lang == "de" ? "Das Ändern des Seitenverhältnisses zur Laufzeit wird noch nicht unterstützt." : "Chaning 'aspectRatio' in run-time is not yet supported.");
           return;
         }
 
-        var videoTrack = _this2._localMediaStream.getVideoTracks()[0]; // TODO(mebjas): This can be simplified to just return the promise
+        var videoTrack = _this3._localMediaStream.getVideoTracks()[0]; // TODO(mebjas): This can be simplified to just return the promise
         // directly.
 
 
@@ -709,7 +711,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
     key: "_clearElement",
     value: function _clearElement() {
       if (this._isScanning) {
-        throw 'Cannot clear while scan is ongoing, close it first.';
+        throw this.lang == "de" ? "Kann nicht gelöscht werden, während der Scan ausgeführt wird. Schließe es zuerst." : "Cannot clear while scan is ongoing, close it first.";
       }
 
       var element = document.getElementById(this._elementId);
@@ -741,7 +743,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
     key: "_getShadedRegionBounds",
     value: function _getShadedRegionBounds(width, height, qrboxSize) {
       if (qrboxSize > width || qrboxSize > height) {
-        throw "'config.qrbox' should not be greater than the " + "width and height of the HTML element.";
+        throw this.lang == "de" ? "'config.qrbox' sollte nicht größer als die " + "Breite und Höhe des HTML-Elements sein." : "'config.qrbox' should not be greater than the " + "width and height of the HTML element.";
       }
 
       return {
@@ -848,6 +850,8 @@ var Html5Qrcode = /*#__PURE__*/function () {
   }, {
     key: "_createVideoConstraints",
     value: function _createVideoConstraints(cameraIdOrConfig) {
+      var _this4 = this;
+
       if (typeof cameraIdOrConfig == "string") {
         // If it's a string it should be camera device Id.
         return {
@@ -870,20 +874,20 @@ var Html5Qrcode = /*#__PURE__*/function () {
             return true;
           } else {
             // Invalid config
-            throw "config has invalid 'facingMode' value = " + "'".concat(value, "'");
+            throw (_this4.lang == "de" ? "config hat einen ungültigen 'facingMode' Wert = " : "config has invalid 'facingMode' value = ") + "'".concat(value, "'");
           }
         };
 
         var keys = Object.keys(cameraIdOrConfig);
 
         if (keys.length != 1) {
-          throw "'cameraIdOrConfig' object should have exactly 1 key," + " if passed as an object, found ".concat(keys.length, " keys");
+          throw this.lang == "de" ? "Das Objekt 'cameraIdOrConfig' sollte genau 1 Schlüssel haben," + " wenn es als Objekt \xFCbergeben wird. Es wurden ".concat(keys.length, " Schl\xFCssel gefunden") : "'cameraIdOrConfig' object should have exactly 1 key," + " if passed as an object, found ".concat(keys.length, " keys");
         }
 
         var key = Object.keys(cameraIdOrConfig)[0];
 
         if (key != facingModeKey && key != deviceIdKey) {
-          throw "Only '".concat(facingModeKey, "' and '").concat(deviceIdKey, "' ") + " are supported for 'cameraIdOrConfig'";
+          throw this.lang == "de" ? "Nur '".concat(facingModeKey, "' und '").concat(deviceIdKey, "' ") + " werden für 'cameraIdOrConfig' unterstützt" : "Only '".concat(facingModeKey, "' and '").concat(deviceIdKey, "' ") + " are supported for 'cameraIdOrConfig'";
         }
 
         if (key == facingModeKey) {
@@ -912,12 +916,12 @@ var Html5Qrcode = /*#__PURE__*/function () {
                 };
               }
             } else {
-              throw "'facingMode' should be string or object with" + " ".concat(exactKey, " as key.");
+              throw this.lang == "de" ? "'facingMode' sollte eine Zeichenfolge oder ein Objekt mit" + " ".concat(exactKey, " als Schl\xFCssel sein.") : "'facingMode' should be string or object with" + " ".concat(exactKey, " as key.");
             }
           } else {
             var type = _typeof(facingMode);
 
-            throw "Invalid type of 'facingMode' = ".concat(type);
+            throw this.lang == "de" ? "Ung\xFCltiger Typ von 'facingMode' = ".concat(type) : "Invalid type of 'facingMode' = ".concat(type);
           }
         } else {
           /**
@@ -939,19 +943,19 @@ var Html5Qrcode = /*#__PURE__*/function () {
                 }
               };
             } else {
-              throw "'deviceId' should be string or object with" + " ".concat(exactKey, " as key.");
+              throw this.lang == "de" ? "'deviceId' sollte eine Zeichenfolge oder ein Objekt mit" + " ".concat(exactKey, " als Schl\xFCssel sein.") : "'deviceId' should be string or object with" + " ".concat(exactKey, " as key.");
             }
           } else {
             var _type = _typeof(deviceId);
 
-            throw "Invalid type of 'deviceId' = ".concat(_type);
+            throw this.lang == "de" ? "Ung\xFCltiger Typ von 'deviceId' = ".concat(_type) : "Invalid type of 'deviceId' = ".concat(_type);
           }
         }
       } else {
         // invalid type
         var _type2 = _typeof(cameraIdOrConfig);
 
-        throw "Invalid type of 'cameraIdOrConfig' = ".concat(_type2);
+        throw this.lang == "de" ? "Ung\xFCltiger Typ von 'cameraIdOrConfig' = ".concat(_type2) : "Invalid type of 'cameraIdOrConfig' = ".concat(_type2);
       }
     } //#endregion
     //#region private method to check for valid videoConstraints
@@ -960,7 +964,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
     key: "_isMediaStreamConstraintsValid",
     value: function _isMediaStreamConstraintsValid(videoConstraints) {
       if (!videoConstraints) {
-        Html5Qrcode._logError("Empty videoConstraints",
+        Html5Qrcode._logError(this.lang == "de" ? "Leere videoConstraints" : "Empty videoConstraints",
         /* experimental= */
         true);
 
@@ -970,7 +974,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
       if (_typeof(videoConstraints) !== "object") {
         var typeofVideoConstraints = _typeof(videoConstraints);
 
-        Html5Qrcode._logError("videoConstraints should be of type object, the " + "object passed is of type ".concat(typeofVideoConstraints, "."),
+        Html5Qrcode._logError(this.lang == "de" ? "videoConstraints sollte vom Typ Objekt sein, das " + "\xFCbergebene Objekt ist vom Typ ".concat(typeofVideoConstraints, ".") : "videoConstraints should be of type object, the " + "object passed is of type ".concat(typeofVideoConstraints, "."),
         /* experimental= */
         true);
 
@@ -987,7 +991,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
         var key = keysInVideoConstraints[i];
 
         if (bannedkeysSet.has(key)) {
-          Html5Qrcode._logError("".concat(key, " is not supported videoConstaints."),
+          Html5Qrcode._logError(this.lang == "de" ? "".concat(key, " wird von videoConstaints nicht unterst\xFCtzt.") : "".concat(key, " is not supported videoConstaints."),
           /* experimental= */
           true);
 
@@ -1001,11 +1005,11 @@ var Html5Qrcode = /*#__PURE__*/function () {
   }], [{
     key: "getCameras",
     value: function getCameras() {
-      var _this3 = this;
+      var _this5 = this;
 
       return new Promise(function (resolve, reject) {
         if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices && navigator.mediaDevices.getUserMedia) {
-          _this3._log("navigator.mediaDevices used");
+          _this5._log(_this5.lang == "de" ? "navigator.mediaDevices verwendet" : "navigator.mediaDevices used");
 
           navigator.mediaDevices.getUserMedia({
             audio: false,
@@ -1014,7 +1018,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
             // hacky approach to close any active stream if they are
             // active.
             stream.oninactive = function (_) {
-              return _this3._log("All streams closed");
+              return _this5._log(_this5.lang == "de" ? "Alle Streams geschlossen" : "All streams closed");
             };
 
             var closeActiveStreams = function closeActiveStreams(stream) {
@@ -1042,7 +1046,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
                 }
               }
 
-              _this3._log("".concat(results.length, " results found"));
+              _this5._log(_this5.lang == "de" ? "".concat(results.length, " Ergebnisse gefunden") : "".concat(results.length, " results found"));
 
               closeActiveStreams(stream);
               resolve(results);
@@ -1053,7 +1057,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
             reject("".concat(err.name, " : ").concat(err.message));
           });
         } else if (MediaStreamTrack && MediaStreamTrack.getSources) {
-          _this3._log("MediaStreamTrack.getSources used");
+          _this5._log(_this5.lang == "de" ? "MediaStreamTrack.getSources verwendet" : "MediaStreamTrack.getSources used");
 
           var callback = function callback(sourceInfos) {
             var results = [];
@@ -1069,7 +1073,7 @@ var Html5Qrcode = /*#__PURE__*/function () {
               }
             }
 
-            _this3._log("".concat(results.length, " results found"));
+            _this5._log(_this5.lang == "de" ? "".concat(results.length, " Ergebnisse gefunden") : "".concat(results.length, " results found"));
 
             resolve(results);
           };
@@ -1086,13 +1090,13 @@ var Html5Qrcode = /*#__PURE__*/function () {
             return host === "127.0.0.1" || host === "localhost";
           };
 
-          var errorMessage = "Unable to query supported devices, unknown error.";
+          var errorMessage = _this5.lang == "de" ? "Unterstützte Geräte können nicht abgefragt werden, unbekannter Fehler." : "Unable to query supported devices, unknown error.";
 
           if (!isHttpsOrLocalhost()) {
-            errorMessage = "Camera access is only supported in secure context like https " + "or localhost.";
+            errorMessage = _this5.lang == "de" ? "Der Kamerazugriff wird nur in sicheren Kontexten wie https oder localhost unterstützt." : "Camera access is only supported in secure context like https or localhost.";
           }
 
-          _this3._log(errorMessage);
+          _this5._log(errorMessage);
 
           reject(errorMessage);
         }

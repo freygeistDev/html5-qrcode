@@ -66,9 +66,10 @@ class Html5QrcodeScanner {
         this.elementId = elementId;
         this.config = config;
         this.verbose = verbose === true;
+        this.lang = ("lang" in this.config && this.config.lang == "de") ? this.config.lang : "en";
 
         if (!document.getElementById(elementId)) {
-            throw `HTML Element with id=${elementId} not found`;
+            throw this.lang == "de" ? `HTML-Element mit id=${elementId} nicht gefunden` : `HTML Element with id=${elementId} not found`;
         }
 
         this.currentScanType = Html5QrcodeScanner.SCAN_TYPE_CAMERA;
@@ -106,13 +107,13 @@ class Html5QrcodeScanner {
                 }
                 $this.lastMatchFound = message;
                 $this.__setHeaderMessage(
-                    `Last Match: ${message}`, Html5QrcodeScanner.STATUS_SUCCESS);
+                    this.lang == "de" ? `Letzte Übereinstimmung: ${message}` : `Last Match: ${message}`, Html5QrcodeScanner.STATUS_SUCCESS);
             }
         }
 
         // Add wrapper to failure callback
         this.qrCodeErrorCallback = error => {
-            $this.__setStatus("Scanning");
+            $this.__setStatus(this.lang == "de" ? "Scannen" : "Scanning");
             if (qrCodeErrorCallback) {
                 qrCodeErrorCallback(error);
             }
@@ -151,7 +152,7 @@ class Html5QrcodeScanner {
                         resolve();
                     }).catch(error => {
                         if ($this.verbose) {
-                            console.error("Unable to stop qrcode scanner", error);
+                            console.error($this.lang == "de" ? "QR-Code-Scanner kann nicht gestoppt werden" : "Unable to stop qrcode scanner", error);
                         }
                         reject(error);
                     })
@@ -262,7 +263,7 @@ class Html5QrcodeScanner {
             statusSpan.classList.add("qr-reader__status");
         }
         header.appendChild(statusSpan);
-        this.__setStatus("IDLE");
+        this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
         const headerMessageContainer = document.createElement("div");
         headerMessageContainer.id = this.__getHeaderMessageContainerId();
@@ -316,25 +317,25 @@ class Html5QrcodeScanner {
         }
 
         const requestPermissionButton = document.createElement("button");
-        requestPermissionButton.innerHTML = "Request Camera Permissions";
+        requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
         requestPermissionButton.addEventListener("click", function () {
             requestPermissionButton.disabled = true;
-            $this.__setStatus("PERMISSION");
-            $this.__setHeaderMessage("Requesting camera permissions...");
+            $this.__setStatus($this.lang == "de" ? "Genehmigung" : "PERMISSION");
+            $this.__setHeaderMessage($this.lang == "de" ? "Kameraberechtigungen anfordern ..." : "Requesting camera permissions...");
 
             Html5Qrcode.getCameras().then(cameras => {
-                $this.__setStatus("IDLE");
+                $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
                 $this.__resetHeaderMessage();
                 if (!cameras || cameras.length == 0) {
                     $this.__setStatus(
-                        "No Cameras", Html5QrcodeScanner.STATUS_WARNING);
+                        $this.lang == "de" ? "Keine Kameras" : "No Cameras", Html5QrcodeScanner.STATUS_WARNING);
                 } else {
                     scpCameraScanRegion.removeChild(requestPermissionContainer);
                     $this.__renderCameraSelection(cameras);
                 }
             }).catch(error => {
                 requestPermissionButton.disabled = false;
-                $this.__setStatus("IDLE");
+                $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
                 $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
             });
         });
@@ -365,7 +366,7 @@ class Html5QrcodeScanner {
         fileScanInput.disabled
             = this.currentScanType == Html5QrcodeScanner.SCAN_TYPE_CAMERA;
         const fileScanLabel = document.createElement("span");
-        fileScanLabel.innerHTML = "&nbsp; Select Image";
+        fileScanLabel.innerHTML = $this.lang == "de" ? "&nbsp; Bild auswählen" : "&nbsp; Select Image";
         fileBasedScanRegion.appendChild(fileScanInput);
         fileBasedScanRegion.appendChild(fileScanLabel);
         fileScanInput.addEventListener('change', e => {
@@ -382,7 +383,7 @@ class Html5QrcodeScanner {
                     $this.qrCodeSuccessCallback(qrCode);
                 })
                 .catch(error => {
-                    $this.__setStatus("ERROR", Html5QrcodeScanner.STATUS_WARNING);
+                    $this.__setStatus($this.lang == "de" ? "Fehler" : "ERROR", Html5QrcodeScanner.STATUS_WARNING);
                     $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
                     $this.qrCodeErrorCallback(error);
                 });
@@ -404,7 +405,7 @@ class Html5QrcodeScanner {
 
         const cameraSelectionContainer = document.createElement("span");
         cameraSelectionContainer.innerHTML
-            = `Select Camera (${cameras.length}) &nbsp;`;
+            = $this.lang == "de" ? `Kamera wählen (${cameras.length}) &nbsp;` : `Select Camera (${cameras.length}) &nbsp;`;
         if (config.inlineCSS) {
             cameraSelectionContainer.style.marginRight = "10px";
         } else {
@@ -427,11 +428,11 @@ class Html5QrcodeScanner {
 
         const cameraActionContainer = document.createElement("span");
         const cameraActionStartButton = document.createElement("button");
-        cameraActionStartButton.innerHTML = "Start Scanning";
+        cameraActionStartButton.innerHTML = $this.lang == "de" ? "Scan starten" : "Start Scanning";
         cameraActionContainer.appendChild(cameraActionStartButton);
 
         const cameraActionStopButton = document.createElement("button");
-        cameraActionStopButton.innerHTML = "Stop Scanning";
+        cameraActionStopButton.innerHTML = $this.lang == "de" ? "Scannen beenden" : "Stop Scanning";
         cameraActionStopButton.style.display = "none";
         cameraActionStopButton.disabled = true;
         cameraActionContainer.appendChild(cameraActionStopButton);
@@ -453,13 +454,13 @@ class Html5QrcodeScanner {
                     cameraActionStopButton.disabled = false;
                     cameraActionStopButton.style.display = "inline-block";
                     cameraActionStartButton.style.display = "none";
-                    $this.__setStatus("Scanning");
+                    $this.__setStatus($this.lang == "de" ? "Scannen" : "Scanning");
                 })
                 .catch(error => {
                     $this._showHideScanTypeSwapLink(true);
                     cameraSelectionSelect.disabled = false;
                     cameraActionStartButton.disabled = false;
-                    $this.__setStatus("IDLE");
+                    $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
                     $this.__setHeaderMessage(
                         error, Html5QrcodeScanner.STATUS_WARNING);
                 });
@@ -474,11 +475,11 @@ class Html5QrcodeScanner {
                     cameraActionStartButton.disabled = false;
                     cameraActionStopButton.style.display = "none";
                     cameraActionStartButton.style.display = "inline-block";
-                    $this.__setStatus("IDLE");
+                    $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
                     $this.__insertCameraScanImageToScanRegion();
                 }).catch(error => {
                     cameraActionStopButton.disabled = false;
-                    $this.__setStatus("ERROR", Html5QrcodeScanner.STATUS_WARNING);
+                    $this.__setStatus($this.lang == "de" ? "Fehler" : "ERROR", Html5QrcodeScanner.STATUS_WARNING);
                     $this.__setHeaderMessage(
                         error, Html5QrcodeScanner.STATUS_WARNING);
                 });
@@ -489,9 +490,9 @@ class Html5QrcodeScanner {
         const $this = this;
         $this.config.inlineCSS = ('inlineCSS' in $this.config) ? $this.config.inlineCSS : true;
         const TEXT_IF_CAMERA_SCAN_SELECTED
-            = "Scan an Image File";
+            = $this.lang == "de" ? "Bilddatei scannen" : "Scan an Image File";
         const TEXT_IF_FILE_SCAN_SELECTED
-            = "Scan using camera directly";
+            = $this.lang == "de" ? "Mit Kamera direkt scannen" : "Scan using camera directly";
 
         const section = document.getElementById(this.__getDashboardSectionId());
         const switchContainer = document.createElement("div");
@@ -514,13 +515,13 @@ class Html5QrcodeScanner {
         swithToFileBasedLink.addEventListener('click', function () {
             if (!$this.sectionSwapAllowed) {
                 if ($this.verbose) {
-                    console.error("Section swap called when not allowed");
+                    console.error($this.lang == "de" ? "Abschnittswechsel aufgerufen, obwohl nicht erlaubt" : "Section swap called when not allowed");
                 }
                 return;
             }
 
             // Cleanup states
-            $this.__setStatus("IDLE");
+            $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
             $this.__resetHeaderMessage();
             $this.__getFileScanInput().value = "";
 

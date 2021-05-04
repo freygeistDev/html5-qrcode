@@ -68,9 +68,10 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
     this.elementId = elementId;
     this.config = config;
     this.verbose = verbose === true;
+    this.lang = "lang" in this.config && this.config.lang == "de" ? this.config.lang : "en";
 
     if (!document.getElementById(elementId)) {
-      throw "HTML Element with id=".concat(elementId, " not found");
+      throw this.lang == "de" ? "HTML-Element mit id=".concat(elementId, " nicht gefunden") : "HTML Element with id=".concat(elementId, " not found");
     }
 
     this.currentScanType = Html5QrcodeScanner.SCAN_TYPE_CAMERA;
@@ -96,6 +97,8 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
   _createClass(Html5QrcodeScanner, [{
     key: "render",
     value: function render(qrCodeSuccessCallback, qrCodeErrorCallback) {
+      var _this = this;
+
       var $this = this;
       this.lastMatchFound = undefined; // Add wrapper to success callback.
 
@@ -111,13 +114,13 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
           $this.lastMatchFound = message;
 
-          $this.__setHeaderMessage("Last Match: ".concat(message), Html5QrcodeScanner.STATUS_SUCCESS);
+          $this.__setHeaderMessage(_this.lang == "de" ? "Letzte \xDCbereinstimmung: ".concat(message) : "Last Match: ".concat(message), Html5QrcodeScanner.STATUS_SUCCESS);
         }
       }; // Add wrapper to failure callback
 
 
       this.qrCodeErrorCallback = function (error) {
-        $this.__setStatus("Scanning");
+        $this.__setStatus(_this.lang == "de" ? "Scannen" : "Scanning");
 
         if (qrCodeErrorCallback) {
           qrCodeErrorCallback(error);
@@ -141,17 +144,17 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
   }, {
     key: "clear",
     value: function clear() {
-      var _this = this;
+      var _this2 = this;
 
       var $this = this;
 
       var emptyHtmlContainer = function emptyHtmlContainer() {
-        var mainContainer = document.getElementById(_this.elementId);
+        var mainContainer = document.getElementById(_this2.elementId);
 
         if (mainContainer) {
           mainContainer.innerHTML = "";
 
-          _this.__resetBasicLayout(mainContainer);
+          _this2.__resetBasicLayout(mainContainer);
         }
       };
 
@@ -164,7 +167,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
               resolve();
             })["catch"](function (error) {
               if ($this.verbose) {
-                console.error("Unable to stop qrcode scanner", error);
+                console.error($this.lang == "de" ? "QR-Code-Scanner kann nicht gestoppt werden" : "Unable to stop qrcode scanner", error);
               }
 
               reject(error);
@@ -298,7 +301,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       header.appendChild(statusSpan);
 
-      this.__setStatus("IDLE");
+      this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
       var headerMessageContainer = document.createElement("div");
       headerMessageContainer.id = this.__getHeaderMessageContainerId();
@@ -355,21 +358,21 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       }
 
       var requestPermissionButton = document.createElement("button");
-      requestPermissionButton.innerHTML = "Request Camera Permissions";
+      requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
       requestPermissionButton.addEventListener("click", function () {
         requestPermissionButton.disabled = true;
 
-        $this.__setStatus("PERMISSION");
+        $this.__setStatus($this.lang == "de" ? "Genehmigung" : "PERMISSION");
 
-        $this.__setHeaderMessage("Requesting camera permissions...");
+        $this.__setHeaderMessage($this.lang == "de" ? "Kameraberechtigungen anfordern ..." : "Requesting camera permissions...");
 
         Html5Qrcode.getCameras().then(function (cameras) {
-          $this.__setStatus("IDLE");
+          $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
           $this.__resetHeaderMessage();
 
           if (!cameras || cameras.length == 0) {
-            $this.__setStatus("No Cameras", Html5QrcodeScanner.STATUS_WARNING);
+            $this.__setStatus($this.lang == "de" ? "Keine Kameras" : "No Cameras", Html5QrcodeScanner.STATUS_WARNING);
           } else {
             scpCameraScanRegion.removeChild(requestPermissionContainer);
 
@@ -378,7 +381,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
         })["catch"](function (error) {
           requestPermissionButton.disabled = false;
 
-          $this.__setStatus("IDLE");
+          $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
           $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
         });
@@ -409,7 +412,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       fileScanInput.disabled = this.currentScanType == Html5QrcodeScanner.SCAN_TYPE_CAMERA;
       var fileScanLabel = document.createElement("span");
-      fileScanLabel.innerHTML = "&nbsp; Select Image";
+      fileScanLabel.innerHTML = $this.lang == "de" ? "&nbsp; Bild auswählen" : "&nbsp; Select Image";
       fileBasedScanRegion.appendChild(fileScanInput);
       fileBasedScanRegion.appendChild(fileScanLabel);
       fileScanInput.addEventListener('change', function (e) {
@@ -427,7 +430,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
           $this.qrCodeSuccessCallback(qrCode);
         })["catch"](function (error) {
-          $this.__setStatus("ERROR", Html5QrcodeScanner.STATUS_WARNING);
+          $this.__setStatus($this.lang == "de" ? "Fehler" : "ERROR", Html5QrcodeScanner.STATUS_WARNING);
 
           $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
 
@@ -453,7 +456,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       }
 
       var cameraSelectionContainer = document.createElement("span");
-      cameraSelectionContainer.innerHTML = "Select Camera (".concat(cameras.length, ") &nbsp;");
+      cameraSelectionContainer.innerHTML = $this.lang == "de" ? "Kamera w\xE4hlen (".concat(cameras.length, ") &nbsp;") : "Select Camera (".concat(cameras.length, ") &nbsp;");
 
       if (config.inlineCSS) {
         cameraSelectionContainer.style.marginRight = "10px";
@@ -478,10 +481,10 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       scpCameraScanRegion.appendChild(cameraSelectionContainer);
       var cameraActionContainer = document.createElement("span");
       var cameraActionStartButton = document.createElement("button");
-      cameraActionStartButton.innerHTML = "Start Scanning";
+      cameraActionStartButton.innerHTML = $this.lang == "de" ? "Scan starten" : "Start Scanning";
       cameraActionContainer.appendChild(cameraActionStartButton);
       var cameraActionStopButton = document.createElement("button");
-      cameraActionStopButton.innerHTML = "Stop Scanning";
+      cameraActionStopButton.innerHTML = $this.lang == "de" ? "Scannen beenden" : "Stop Scanning";
       cameraActionStopButton.style.display = "none";
       cameraActionStopButton.disabled = true;
       cameraActionContainer.appendChild(cameraActionStopButton);
@@ -498,14 +501,14 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
           cameraActionStopButton.style.display = "inline-block";
           cameraActionStartButton.style.display = "none";
 
-          $this.__setStatus("Scanning");
+          $this.__setStatus($this.lang == "de" ? "Scannen" : "Scanning");
         })["catch"](function (error) {
           $this._showHideScanTypeSwapLink(true);
 
           cameraSelectionSelect.disabled = false;
           cameraActionStartButton.disabled = false;
 
-          $this.__setStatus("IDLE");
+          $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
           $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
         });
@@ -520,13 +523,13 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
           cameraActionStopButton.style.display = "none";
           cameraActionStartButton.style.display = "inline-block";
 
-          $this.__setStatus("IDLE");
+          $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
           $this.__insertCameraScanImageToScanRegion();
         })["catch"](function (error) {
           cameraActionStopButton.disabled = false;
 
-          $this.__setStatus("ERROR", Html5QrcodeScanner.STATUS_WARNING);
+          $this.__setStatus($this.lang == "de" ? "Fehler" : "ERROR", Html5QrcodeScanner.STATUS_WARNING);
 
           $this.__setHeaderMessage(error, Html5QrcodeScanner.STATUS_WARNING);
         });
@@ -537,8 +540,8 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
     value: function __createSectionSwap() {
       var $this = this;
       $this.config.inlineCSS = 'inlineCSS' in $this.config ? $this.config.inlineCSS : true;
-      var TEXT_IF_CAMERA_SCAN_SELECTED = "Scan an Image File";
-      var TEXT_IF_FILE_SCAN_SELECTED = "Scan using camera directly";
+      var TEXT_IF_CAMERA_SCAN_SELECTED = $this.lang == "de" ? "Bilddatei scannen" : "Scan an Image File";
+      var TEXT_IF_FILE_SCAN_SELECTED = $this.lang == "de" ? "Mit Kamera direkt scannen" : "Scan using camera directly";
       var section = document.getElementById(this.__getDashboardSectionId());
       var switchContainer = document.createElement("div");
 
@@ -562,14 +565,14 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       swithToFileBasedLink.addEventListener('click', function () {
         if (!$this.sectionSwapAllowed) {
           if ($this.verbose) {
-            console.error("Section swap called when not allowed");
+            console.error($this.lang == "de" ? "Abschnittswechsel aufgerufen, obwohl nicht erlaubt" : "Section swap called when not allowed");
           }
 
           return;
         } // Cleanup states
 
 
-        $this.__setStatus("IDLE");
+        $this.__setStatus($this.lang == "de" ? "Leerlauf" : "IDLE");
 
         $this.__resetHeaderMessage();
 
