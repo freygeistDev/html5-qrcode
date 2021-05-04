@@ -216,7 +216,9 @@ class Html5QrcodeScanner {
     __setupInitialDashboard(dashboard) {
         this.__createSection(dashboard);
         this.__createSectionControlPanel();
-        this.__createSectionSwap();
+        if ('allowFileScan' in this.config && this.config.allowFileScan) {
+            this.__createSectionSwap();
+        }
     }
 
     __createHeader(dashboard) {
@@ -631,13 +633,17 @@ class Html5QrcodeScanner {
     }
 
     _showHideScanTypeSwapLink(shouldDisplay) {
+        $allowFileScan = ('allowFileScan' in this.config) ? this.config.allowFileScan : true;
+
         if (shouldDisplay !== true) {
             shouldDisplay = false;
         }
 
-        this.sectionSwapAllowed = shouldDisplay;
-        this.__getDashboardSectionSwapLink().style.display
-            = shouldDisplay ? "inline-block" : "none";
+        this.sectionSwapAllowed = $allowFileScan ? shouldDisplay : $allowFileScan;
+        if ($allowFileScan) {
+            this.__getDashboardSectionSwapLink().style.display
+                = shouldDisplay ? "inline-block" : "none";
+        }
     }
 
     __insertCameraScanImageToScanRegion() {

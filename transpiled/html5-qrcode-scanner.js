@@ -247,7 +247,9 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       this.__createSectionControlPanel();
 
-      this.__createSectionSwap();
+      if ('allowFileScan' in this.config && this.config.allowFileScan) {
+        this.__createSectionSwap();
+      }
     }
   }, {
     key: "__createHeader",
@@ -696,12 +698,17 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
   }, {
     key: "_showHideScanTypeSwapLink",
     value: function _showHideScanTypeSwapLink(shouldDisplay) {
+      $allowFileScan = 'allowFileScan' in this.config ? this.config.allowFileScan : true;
+
       if (shouldDisplay !== true) {
         shouldDisplay = false;
       }
 
-      this.sectionSwapAllowed = shouldDisplay;
-      this.__getDashboardSectionSwapLink().style.display = shouldDisplay ? "inline-block" : "none";
+      this.sectionSwapAllowed = $allowFileScan ? shouldDisplay : $allowFileScan;
+
+      if ($allowFileScan) {
+        this.__getDashboardSectionSwapLink().style.display = shouldDisplay ? "inline-block" : "none";
+      }
     }
   }, {
     key: "__insertCameraScanImageToScanRegion",
