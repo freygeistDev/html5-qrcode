@@ -318,6 +318,13 @@ class Html5QrcodeScanner {
             requestPermissionContainer.classList.add("qr-reader__text_center");
         }
 
+        const ajaxResponseContainer = document.getElementById(
+            this.__getAjaxResponseContainerId());
+        
+        if (ajaxResponseContainer) {
+            ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+        }
+
         const requestPermissionButton = document.createElement("button");
         requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
         requestPermissionButton.addEventListener("click", function () {
@@ -430,14 +437,19 @@ class Html5QrcodeScanner {
 
         const cameraActionContainer = document.createElement("span");
         const cameraActionStartButton = document.createElement("button");
+        cameraActionStartButton.id = "qr-reader__button_start";
         cameraActionStartButton.innerHTML = $this.lang == "de" ? "Scan starten" : "Start Scanning";
         cameraActionContainer.appendChild(cameraActionStartButton);
 
         const cameraActionStopButton = document.createElement("button");
+        cameraActionStopButton.id = "qr-reader__button_stop";
         cameraActionStopButton.innerHTML = $this.lang == "de" ? "Scannen beenden" : "Stop Scanning";
         cameraActionStopButton.style.display = "none";
         cameraActionStopButton.disabled = true;
         cameraActionContainer.appendChild(cameraActionStopButton);
+
+        const ajaxResponseContainer = document.getElementById(
+            this.__getAjaxResponseContainerId());
 
         scpCameraScanRegion.appendChild(cameraActionContainer);
 
@@ -453,6 +465,9 @@ class Html5QrcodeScanner {
                 $this.qrCodeSuccessCallback,
                 $this.qrCodeErrorCallback)
                 .then(_ => {
+                    if (ajaxResponseContainer) {
+                        ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+                    }
                     cameraActionStopButton.disabled = false;
                     cameraActionStopButton.style.display = "inline-block";
                     cameraActionStartButton.style.display = "none";
@@ -762,6 +777,10 @@ class Html5QrcodeScanner {
 
     __getDashboardSectionSwapLink() {
         return document.getElementById(this.__getDashboardSectionSwapLinkId());
+    }
+
+    __getAjaxResponseContainerId() {
+        return `${this.elementId}__ajax_response`;
     }
     //#endregion
 }

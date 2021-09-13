@@ -359,6 +359,12 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
         requestPermissionContainer.classList.add("qr-reader__text_center");
       }
 
+      var ajaxResponseContainer = document.getElementById(this.__getAjaxResponseContainerId());
+
+      if (ajaxResponseContainer) {
+        ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+      }
+
       var requestPermissionButton = document.createElement("button");
       requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
       requestPermissionButton.addEventListener("click", function () {
@@ -483,13 +489,16 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       scpCameraScanRegion.appendChild(cameraSelectionContainer);
       var cameraActionContainer = document.createElement("span");
       var cameraActionStartButton = document.createElement("button");
+      cameraActionStartButton.id = "qr-reader__button_start";
       cameraActionStartButton.innerHTML = $this.lang == "de" ? "Scan starten" : "Start Scanning";
       cameraActionContainer.appendChild(cameraActionStartButton);
       var cameraActionStopButton = document.createElement("button");
+      cameraActionStopButton.id = "qr-reader__button_stop";
       cameraActionStopButton.innerHTML = $this.lang == "de" ? "Scannen beenden" : "Stop Scanning";
       cameraActionStopButton.style.display = "none";
       cameraActionStopButton.disabled = true;
       cameraActionContainer.appendChild(cameraActionStopButton);
+      var ajaxResponseContainer = document.getElementById(this.__getAjaxResponseContainerId());
       scpCameraScanRegion.appendChild(cameraActionContainer);
       cameraActionStartButton.addEventListener('click', function (_) {
         cameraSelectionSelect.disabled = true;
@@ -499,6 +508,10 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
         var cameraId = cameraSelectionSelect.value;
         $this.html5Qrcode.start(cameraId, config, $this.qrCodeSuccessCallback, $this.qrCodeErrorCallback).then(function (_) {
+          if (ajaxResponseContainer) {
+            ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+          }
+
           cameraActionStopButton.disabled = false;
           cameraActionStopButton.style.display = "inline-block";
           cameraActionStartButton.style.display = "none";
@@ -845,6 +858,11 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
     key: "__getDashboardSectionSwapLink",
     value: function __getDashboardSectionSwapLink() {
       return document.getElementById(this.__getDashboardSectionSwapLinkId());
+    }
+  }, {
+    key: "__getAjaxResponseContainerId",
+    value: function __getAjaxResponseContainerId() {
+      return "".concat(this.elementId, "__ajax_response");
     } //#endregion
 
   }]);
