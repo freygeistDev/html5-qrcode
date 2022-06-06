@@ -359,11 +359,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
         requestPermissionContainer.classList.add("qr-reader__text_center");
       }
 
-      var ajaxResponseContainer = document.getElementById(this.__getAjaxResponseContainerId());
-
-      if (ajaxResponseContainer) {
-        ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
-      }
+      $this.__resetAjaxContainer();
 
       var requestPermissionButton = document.createElement("button");
       requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
@@ -498,7 +494,6 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       cameraActionStopButton.style.display = "none";
       cameraActionStopButton.disabled = true;
       cameraActionContainer.appendChild(cameraActionStopButton);
-      var ajaxResponseContainer = document.getElementById(this.__getAjaxResponseContainerId());
       scpCameraScanRegion.appendChild(cameraActionContainer);
       cameraActionStartButton.addEventListener('click', function (_) {
         cameraSelectionSelect.disabled = true;
@@ -506,11 +501,11 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
         $this._showHideScanTypeSwapLink(false);
 
+        $this.__clearScanRegion();
+
         var cameraId = cameraSelectionSelect.value;
         $this.html5Qrcode.start(cameraId, config, $this.qrCodeSuccessCallback, $this.qrCodeErrorCallback).then(function (_) {
-          if (ajaxResponseContainer) {
-            ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
-          }
+          $this.__resetAjaxContainer();
 
           cameraActionStopButton.disabled = false;
           cameraActionStopButton.style.display = "inline-block";
@@ -732,6 +727,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       if (this.cameraScanImage) {
         qrCodeScanRegion.innerHTML = "<br>";
+        qrCodeScanRegion.classList.remove("qr-reader__ready");
         qrCodeScanRegion.appendChild(this.cameraScanImage);
         return;
       }
@@ -740,6 +736,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       this.cameraScanImage.onload = function (_) {
         qrCodeScanRegion.innerHTML = "<br>";
+        qrCodeScanRegion.classList.remove("qr-reader__ready");
         qrCodeScanRegion.appendChild($this.cameraScanImage);
       };
 
@@ -761,6 +758,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       if (this.fileScanImage) {
         qrCodeScanRegion.innerHTML = "<br>";
+        qrCodeScanRegion.classList.remove("qr-reader__ready");
         qrCodeScanRegion.appendChild(this.fileScanImage);
         return;
       }
@@ -769,6 +767,7 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
 
       this.fileScanImage.onload = function (_) {
         qrCodeScanRegion.innerHTML = "<br>";
+        qrCodeScanRegion.classList.remove("qr-reader__ready");
         qrCodeScanRegion.appendChild($this.fileScanImage);
       };
 
@@ -782,10 +781,30 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
       this.fileScanImage.src = Html5QrcodeScanner.ASSET_FILE_SCAN;
     }
   }, {
+    key: "__resetAjaxContainer",
+    value: function __resetAjaxContainer() {
+      var ajaxResponseContainer = document.getElementById(this.__getAjaxResponseContainerId());
+
+      if (ajaxResponseContainer) {
+        ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+        ajaxResponseContainer.removeAttribute("class");
+      }
+    }
+  }, {
     key: "__clearScanRegion",
     value: function __clearScanRegion() {
       var qrCodeScanRegion = document.getElementById(this.__getScanRegionId());
+      var qrCodeHtmlInputImageRegion = document.getElementById(this.__getHtmlInputImageRegionId());
       qrCodeScanRegion.innerHTML = "";
+      qrCodeScanRegion.classList.add("qr-reader__ready");
+
+      if (qrCodeHtmlInputImageRegion) {
+        qrCodeHtmlInputImageRegion.innerHTML = "";
+
+        if (typeof newCodeInput() !== "undefined") {
+          newCodeInput();
+        }
+      }
     } //#endregion
     //#region state getters
 
@@ -813,6 +832,11 @@ var Html5QrcodeScanner = /*#__PURE__*/function () {
     key: "__getScanRegionId",
     value: function __getScanRegionId() {
       return "".concat(this.elementId, "__scan_region");
+    }
+  }, {
+    key: "__getHtmlInputImageRegionId",
+    value: function __getHtmlInputImageRegionId() {
+      return "".concat(this.elementId, "__input_html_region");
     }
   }, {
     key: "__getDashboardId",

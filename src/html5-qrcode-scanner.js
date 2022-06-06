@@ -318,12 +318,7 @@ class Html5QrcodeScanner {
             requestPermissionContainer.classList.add("qr-reader__text_center");
         }
 
-        const ajaxResponseContainer = document.getElementById(
-            this.__getAjaxResponseContainerId());
-        
-        if (ajaxResponseContainer) {
-            ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
-        }
+        $this.__resetAjaxContainer();
 
         const requestPermissionButton = document.createElement("button");
         requestPermissionButton.innerHTML = $this.lang == "de" ? "Kameraberechtigungen anfordern" : "Request Camera Permissions";
@@ -448,15 +443,13 @@ class Html5QrcodeScanner {
         cameraActionStopButton.disabled = true;
         cameraActionContainer.appendChild(cameraActionStopButton);
 
-        const ajaxResponseContainer = document.getElementById(
-            this.__getAjaxResponseContainerId());
-
         scpCameraScanRegion.appendChild(cameraActionContainer);
 
         cameraActionStartButton.addEventListener('click', _ => {
             cameraSelectionSelect.disabled = true;
             cameraActionStartButton.disabled = true;
             $this._showHideScanTypeSwapLink(false);
+            $this.__clearScanRegion();
 
             const cameraId = cameraSelectionSelect.value;
             $this.html5Qrcode.start(
@@ -465,9 +458,7 @@ class Html5QrcodeScanner {
                 $this.qrCodeSuccessCallback,
                 $this.qrCodeErrorCallback)
                 .then(_ => {
-                    if (ajaxResponseContainer) {
-                        ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
-                    }
+                    $this.__resetAjaxContainer();
                     cameraActionStopButton.disabled = false;
                     cameraActionStopButton.style.display = "inline-block";
                     cameraActionStartButton.style.display = "none";
@@ -669,6 +660,7 @@ class Html5QrcodeScanner {
 
         if (this.cameraScanImage) {
             qrCodeScanRegion.innerHTML = "<br>";
+            qrCodeScanRegion.classList.remove("qr-reader__ready");
             qrCodeScanRegion.appendChild(this.cameraScanImage);
             return;
         }
@@ -676,6 +668,7 @@ class Html5QrcodeScanner {
         this.cameraScanImage = new Image;
         this.cameraScanImage.onload = _ => {
             qrCodeScanRegion.innerHTML = "<br>";
+            qrCodeScanRegion.classList.remove("qr-reader__ready");
             qrCodeScanRegion.appendChild($this.cameraScanImage);
         }
         if ($this.config.inlineCSS) {
@@ -695,6 +688,7 @@ class Html5QrcodeScanner {
 
         if (this.fileScanImage) {
             qrCodeScanRegion.innerHTML = "<br>";
+            qrCodeScanRegion.classList.remove("qr-reader__ready");
             qrCodeScanRegion.appendChild(this.fileScanImage);
             return;
         }
@@ -702,6 +696,7 @@ class Html5QrcodeScanner {
         this.fileScanImage = new Image;
         this.fileScanImage.onload = _ => {
             qrCodeScanRegion.innerHTML = "<br>";
+            qrCodeScanRegion.classList.remove("qr-reader__ready");
             qrCodeScanRegion.appendChild($this.fileScanImage);
         }
         if ($this.config.inlineCSS) {
@@ -713,10 +708,30 @@ class Html5QrcodeScanner {
         this.fileScanImage.src = Html5QrcodeScanner.ASSET_FILE_SCAN;
     }
 
+    __resetAjaxContainer() {
+        const ajaxResponseContainer = document.getElementById(
+            this.__getAjaxResponseContainerId());
+        
+        if (ajaxResponseContainer) {
+            ajaxResponseContainer.innerHTML = ajaxResponseContainer.dataset.infotext;
+            ajaxResponseContainer.removeAttribute("class");
+        }
+    }
+
     __clearScanRegion() {
         const qrCodeScanRegion = document.getElementById(
             this.__getScanRegionId());
+        const qrCodeHtmlInputImageRegion = document.getElementById(
+            this.__getHtmlInputImageRegionId());
+
         qrCodeScanRegion.innerHTML = "";
+        qrCodeScanRegion.classList.add("qr-reader__ready");
+        if (qrCodeHtmlInputImageRegion) {
+            qrCodeHtmlInputImageRegion.innerHTML = "";
+            if (typeof newCodeInput() !== "undefined") {
+                newCodeInput();
+            }
+        }
     }
     //#endregion
 
@@ -739,6 +754,10 @@ class Html5QrcodeScanner {
 
     __getScanRegionId() {
         return `${this.elementId}__scan_region`;
+    }
+
+    __getHtmlInputImageRegionId() {
+        return `${this.elementId}__input_html_region`;
     }
 
     __getDashboardId() {
