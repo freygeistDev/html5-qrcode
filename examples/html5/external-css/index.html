@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Scanner - External CSS Example</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="../../../dist/html5-qrcode.min.js"></script>
+</head>
+<body>
+    <h1>QR Code Scanner - External CSS + German</h1>
+
+    <div id="reader"></div>
+
+    <!-- Optional: External AJAX response container -->
+    <div id="reader__ajax_response" data-infotext="Scan a QR code to see the result here.">
+        Scan a QR code to see the result here.
+    </div>
+
+    <script>
+        // Example configuration with all new features:
+        // - lang: "de" for German UI
+        // - inlineCSS: false for external CSS styling
+        const config = {
+            fps: 10,
+            qrbox: { width: 250, height: 250 },
+            lang: "de",           // German language
+            inlineCSS: false      // Use external CSS classes
+        };
+
+        const scanner = new Html5QrcodeScanner("reader", config, /* verbose= */ false);
+
+        function onScanSuccess(decodedText, decodedResult) {
+            console.log(`Code matched = ${decodedText}`, decodedResult);
+
+            // Update the AJAX response container
+            const container = document.getElementById("reader__ajax_response");
+            if (container) {
+                container.innerHTML = `<strong>Scanned:</strong> ${decodedText}`;
+                container.className = "success";
+            }
+        }
+
+        function onScanFailure(error) {
+            // Ignore scan failures (continuous scanning)
+        }
+
+        scanner.render(onScanSuccess, onScanFailure);
+    </script>
+</body>
+</html>

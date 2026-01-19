@@ -74,6 +74,7 @@ import {
 
 import { CameraSelectionUi } from "./ui/scanner/camera-selection-ui";
 import { CameraZoomUi } from "./ui/scanner/camera-zoom-ui";
+import { CssConfig, CssClassNames, applyStyle } from "./css-config";
 
 /**
  * Different states of QR Code Scanner.
@@ -152,6 +153,14 @@ export interface Html5QrcodeScannerConfig
      * Note: default value is "en".
      */
     lang?: SupportedLanguage | undefined;
+
+    /**
+     * If `false`, the library will use CSS classes instead of inline styles.
+     * This allows you to provide your own external CSS file.
+     *
+     * Note: default value is `true` (inline CSS).
+     */
+    inlineCSS?: boolean | undefined;
 }
 
 function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
@@ -227,6 +236,9 @@ export class Html5QrcodeScanner {
         if (config?.lang) {
             LanguageConfig.setLanguage(config.lang);
         }
+
+        // Set CSS mode (inline or external)
+        CssConfig.setInlineCss(config?.inlineCSS !== false);
 
         if (!document.getElementById(elementId)) {
             throw `HTML Element with id=${elementId} not found`;
@@ -485,17 +497,21 @@ export class Html5QrcodeScanner {
     }
 
     private createBasicLayout(parent: HTMLElement) {
-        parent.style.position = "relative";
-        parent.style.padding = "0px";
-        parent.style.border = "1px solid silver";
+        applyStyle(parent, CssClassNames.PARENT, {
+            position: "relative",
+            padding: "0px",
+            border: "1px solid silver"
+        });
         this.createHeader(parent);
 
         const qrCodeScanRegion = document.createElement("div");
         const scanRegionId = this.getScanRegionId();
         qrCodeScanRegion.id = scanRegionId;
-        qrCodeScanRegion.style.width = "100%";
-        qrCodeScanRegion.style.minHeight = "100px";
-        qrCodeScanRegion.style.textAlign = "center";
+        applyStyle(qrCodeScanRegion, CssClassNames.SCAN_REGION, {
+            width: "100%",
+            minHeight: "100px",
+            textAlign: "center"
+        });
         parent.appendChild(qrCodeScanRegion);
         if (ScanTypeSelector.isCameraScanType(this.currentScanType)) {
             this.insertCameraScanImageToScanRegion();
@@ -506,14 +522,18 @@ export class Html5QrcodeScanner {
         const qrCodeDashboard = document.createElement("div");
         const dashboardId = this.getDashboardId();
         qrCodeDashboard.id = dashboardId;
-        qrCodeDashboard.style.width = "100%";
+        applyStyle(qrCodeDashboard, CssClassNames.DASHBOARD, {
+            width: "100%"
+        });
         parent.appendChild(qrCodeDashboard);
 
         this.setupInitialDashboard(qrCodeDashboard);
     }
 
     private resetBasicLayout(mainContainer: HTMLElement) {
-        mainContainer.style.border = "none";
+        applyStyle(mainContainer, CssClassNames.PARENT_NO_BORDER, {
+            border: "none"
+        });
     }
 
     private setupInitialDashboard(dashboard: HTMLElement) {
@@ -526,8 +546,10 @@ export class Html5QrcodeScanner {
 
     private createHeader(dashboard: HTMLElement) {
         const header = document.createElement("div");
-        header.style.textAlign = "left";
-        header.style.margin = "0px";
+        applyStyle(header, CssClassNames.HEADER, {
+            textAlign: "left",
+            margin: "0px"
+        });
         dashboard.appendChild(header);
 
         let libraryInfo = new LibraryInfoContainer();
@@ -535,21 +557,25 @@ export class Html5QrcodeScanner {
 
         const headerMessageContainer = document.createElement("div");
         headerMessageContainer.id = this.getHeaderMessageContainerId();
-        headerMessageContainer.style.display = "none";
-        headerMessageContainer.style.textAlign = "center";
-        headerMessageContainer.style.fontSize = "14px";
-        headerMessageContainer.style.padding = "2px 10px";
-        headerMessageContainer.style.margin = "4px";
-        headerMessageContainer.style.borderTop = "1px solid #f6f6f6";
+        applyStyle(headerMessageContainer, CssClassNames.HEADER_MESSAGE, {
+            display: "none",
+            textAlign: "center",
+            fontSize: "14px",
+            padding: "2px 10px",
+            margin: "4px",
+            borderTop: "1px solid #f6f6f6"
+        });
         header.appendChild(headerMessageContainer);
     }
 
     private createSection(dashboard: HTMLElement) {
         const section = document.createElement("div");
         section.id = this.getDashboardSectionId();
-        section.style.width = "100%";
-        section.style.padding = "10px 0px 10px 0px";
-        section.style.textAlign = "left";
+        applyStyle(section, CssClassNames.SECTION, {
+            width: "100%",
+            padding: "10px 0px 10px 0px",
+            textAlign: "left"
+        });
         dashboard.appendChild(section);
     }
 
@@ -674,7 +700,9 @@ export class Html5QrcodeScanner {
         // permission.
         // Assuming when the object is created permission is needed.
         const requestPermissionContainer = document.createElement("div");
-        requestPermissionContainer.style.textAlign = "center";
+        applyStyle(requestPermissionContainer, CssClassNames.TEXT_CENTER, {
+            textAlign: "center"
+        });
         scpCameraScanRegion.appendChild(requestPermissionContainer);
 
         // TODO(minhazav): If default scan type is file, the permission or
@@ -848,6 +876,9 @@ export class Html5QrcodeScanner {
                 $this.qrCodeSuccessCallback!,
                 $this.qrCodeErrorCallback!)
                 .then((_) => {
+                    // Reset external AJAX container if present
+                    $this.resetAjaxContainer();
+
                     cameraActionStopButton.disabled = false;
                     cameraActionStopButton.style.display = "inline-block";
                     resetCameraActionStartButton(/* shouldShow= */ false);
@@ -1146,6 +1177,30 @@ export class Html5QrcodeScanner {
 
     private getHeaderMessageDiv(): HTMLElement {
         return document.getElementById(this.getHeaderMessageContainerId())!;
+    }
+
+    /**
+     * Returns the ID for an external AJAX response container.
+     * This allows integration with AJAX workflows where scan results
+     * need to be displayed in a custom container.
+     */
+    private getAjaxResponseContainerId(): string {
+        return `${this.elementId}__ajax_response`;
+    }
+
+    /**
+     * Resets the external AJAX response container if it exists.
+     * The container should have a data-infotext attribute with default text.
+     */
+    public resetAjaxContainer(): void {
+        const ajaxResponseContainer = document.getElementById(
+            this.getAjaxResponseContainerId());
+
+        if (ajaxResponseContainer) {
+            const infotext = ajaxResponseContainer.dataset.infotext || "";
+            ajaxResponseContainer.innerHTML = infotext;
+            ajaxResponseContainer.removeAttribute("class");
+        }
     }
     //#endregion
     //#endregion

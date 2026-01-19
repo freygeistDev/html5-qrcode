@@ -1,0 +1,115 @@
+/**
+ * Example CSS file for html5-qrcode with inlineCSS: false
+ * These classes match the CssClassNames in src/css-config.ts
+ */
+
+/* Parent container */
+.qr-reader__parent {
+    position: relative;
+    padding: 0px;
+    border: 1px solid silver;
+}
+
+.qr-reader__noborder {
+    border: none;
+}
+
+/* Scan region */
+.qr-reader__scanregion {
+    width: 100%;
+    min-height: 100px;
+    text-align: center;
+}
+
+.qr-reader__ready {
+    background-color: #f0f0f0;
+}
+
+/* Text alignment */
+.qr-reader__text_center {
+    text-align: center;
+}
+
+.qr-reader__text_left {
+    text-align: left;
+}
+
+/* Dashboard */
+.qr-reader__dashboard {
+    width: 100%;
+}
+
+.qr-reader__section {
+    width: 100%;
+    padding: 10px 0px 10px 0px;
+    text-align: left;
+}
+
+/* Header */
+.qr-reader__header {
+    text-align: left;
+    margin: 0px;
+}
+
+.qr-reader__title {
+    text-align: left;
+    margin: 0px;
+    padding: 5px;
+    font-size: 20px;
+    border-bottom: 1px solid rgba(192, 192, 192, 0.18);
+}
+
+.qr-reader__status {
+    float: right;
+    padding: 5px 7px;
+    font-size: 14px;
+    background: #dedede6b;
+    border: 1px solid #00000000;
+    color: rgb(17, 17, 17);
+}
+
+.qr-reader__status_success {
+    background: #6aaf5042;
+    color: #477735;
+}
+
+.qr-reader__status_warning {
+    background: #cb243124;
+    color: #cb2431;
+}
+
+.qr-reader__status_default {
+    background: #eef;
+    color: rgb(17, 17, 17);
+}
+
+.qr-reader__header_message {
+    display: none;
+    text-align: center;
+    font-size: 14px;
+    padding: 2px 10px;
+    margin: 4px;
+    border-top: 1px solid #f6f6f6;
+}
+
+/* Camera selection */
+.qr-reader__camera_selection {
+    margin-right: 10px;
+}
+
+/* File input */
+.qr-reader__file_input {
+    width: 200px;
+}
+
+.qr-reader__file_link {
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Images */
+.qr-reader__camera_scan_image,
+.qr-reader__file_scan_image {
+    width: 64px;
+    opacity: 0.3;
+}
