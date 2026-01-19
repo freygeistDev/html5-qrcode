@@ -14,6 +14,12 @@ import {
     BaseUiElementFactory,
     PublicUiElementIdAndClasses
 } from "./base";
+import {
+    CssClassNames,
+    applyStyle,
+    showElement,
+    hideElement
+} from "../../css-config";
 
 /**
  * Interface for callback that will be called in case of torch action failures.
@@ -140,8 +146,10 @@ export class TorchButton implements TorchButtonController {
         parentElement: HTMLElement, torchButtonOptions: TorchButtonOptions) {
         this.torchButton.innerText
             = Html5QrcodeScannerStrings.torchOnButton();
-        this.torchButton.style.display = torchButtonOptions.display;
-        this.torchButton.style.marginLeft = torchButtonOptions.marginLeft;
+        applyStyle(this.torchButton, CssClassNames.TORCH_BUTTON, {
+            display: torchButtonOptions.display,
+            marginLeft: torchButtonOptions.marginLeft
+        });
 
         let $this = this;
         this.torchButton.addEventListener("click", async (_) => {
@@ -175,11 +183,11 @@ export class TorchButton implements TorchButtonController {
     }
 
     public hide() {
-        this.torchButton.style.display = "none";
+        hideElement(this.torchButton);
     }
 
     public show() {
-        this.torchButton.style.display = "inline-block";
+        showElement(this.torchButton, "inline-block");
     }
 
     disable(): void {

@@ -8,12 +8,18 @@
  * http://www.denso-wave.com/qrcode/faqpatent-e.html
  */
 
- import {
+import {
     BaseUiElementFactory,
     PublicUiElementIdAndClasses
 } from "./base";
 
 import { Html5QrcodeScannerStrings } from "../../strings";
+import {
+    CssClassNames,
+    applyStyle,
+    showElement,
+    hideElement
+} from "../../css-config";
 
 /** Callback when zoom value changes with the slider UI. */
 export type OnCameraZoomValueChangeCallback = (zoomValue: number) => void;
@@ -46,22 +52,31 @@ export class CameraZoomUi {
         parentElement: HTMLElement,
         renderOnCreate: boolean) {
         // Style for the range slider.
-        this.zoomElementContainer.style.display
-            = renderOnCreate ? "block" : "none";
-        this.zoomElementContainer.style.padding = "5px 10px";
-        this.zoomElementContainer.style.textAlign = "center";
+        if (renderOnCreate) {
+            showElement(this.zoomElementContainer, "block");
+        } else {
+            hideElement(this.zoomElementContainer);
+        }
+        applyStyle(this.zoomElementContainer, CssClassNames.ZOOM_CONTAINER, {
+            padding: "5px 10px",
+            textAlign: "center"
+        });
         parentElement.appendChild(this.zoomElementContainer);
 
-        this.rangeInput.style.display = "inline-block";
-        this.rangeInput.style.width = "50%";
-        this.rangeInput.style.height = "5px";
-        this.rangeInput.style.background = "#d3d3d3";
-        this.rangeInput.style.outline = "none";
-        this.rangeInput.style.opacity = "0.7";
+        applyStyle(this.rangeInput, CssClassNames.ZOOM_SLIDER, {
+            display: "inline-block",
+            width: "50%",
+            height: "5px",
+            background: "#d3d3d3",
+            outline: "none",
+            opacity: "0.7"
+        });
 
         let zoomString = Html5QrcodeScannerStrings.zoom();
         this.rangeText.innerText = `${this.rangeInput.value}x ${zoomString}`;
-        this.rangeText.style.marginRight = "10px";
+        applyStyle(this.rangeText, CssClassNames.ZOOM_LABEL, {
+            marginRight: "10px"
+        });
 
         // Bind values.
         let $this = this;
@@ -95,11 +110,11 @@ export class CameraZoomUi {
     }
 
     public show() {
-        this.zoomElementContainer.style.display = "block";
+        showElement(this.zoomElementContainer, "block");
     }
 
     public hide() {
-        this.zoomElementContainer.style.display = "none";
+        hideElement(this.zoomElementContainer);
     }
 
     public setOnCameraZoomValueChangeCallback(

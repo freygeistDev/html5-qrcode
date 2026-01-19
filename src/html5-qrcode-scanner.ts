@@ -74,7 +74,14 @@ import {
 
 import { CameraSelectionUi } from "./ui/scanner/camera-selection-ui";
 import { CameraZoomUi } from "./ui/scanner/camera-zoom-ui";
-import { CssConfig, CssClassNames, applyStyle } from "./css-config";
+import {
+    CssConfig,
+    CssClassNames,
+    applyStyle,
+    showElement,
+    hideElement,
+    setVisuallyDisabled
+} from "./css-config";
 
 /**
  * Different states of QR Code Scanner.
@@ -690,9 +697,11 @@ export class Html5QrcodeScanner {
         section.appendChild(sectionControlPanel);
         const scpCameraScanRegion = document.createElement("div");
         scpCameraScanRegion.id = this.getDashboardSectionCameraScanRegionId();
-        scpCameraScanRegion.style.display
-            = ScanTypeSelector.isCameraScanType(this.currentScanType)
-            ? "block" : "none";
+        if (ScanTypeSelector.isCameraScanType(this.currentScanType)) {
+            showElement(scpCameraScanRegion, "block");
+        } else {
+            hideElement(scpCameraScanRegion);
+        }
         sectionControlPanel.appendChild(scpCameraScanRegion);
 
         // Web browsers require the users to grant explicit permissions before
@@ -754,7 +763,9 @@ export class Html5QrcodeScanner {
         const $this = this;
         const scpCameraScanRegion = document.getElementById(
             this.getDashboardSectionCameraScanRegionId())!;
-        scpCameraScanRegion.style.textAlign = "center";
+        applyStyle(scpCameraScanRegion, CssClassNames.TEXT_CENTER, {
+            textAlign: "center"
+        });
 
         // Hide by default.
         let cameraZoomUi: CameraZoomUi = CameraZoomUi.create(
@@ -802,7 +813,7 @@ export class Html5QrcodeScanner {
                 "button", PublicUiElementIdAndClasses.CAMERA_STOP_BUTTON_ID);
         cameraActionStopButton.innerText
             = Html5QrcodeScannerStrings.scanButtonStopScanningText();
-        cameraActionStopButton.style.display = "none";
+        hideElement(cameraActionStopButton);
         cameraActionStopButton.disabled = true;
         cameraActionContainer.appendChild(cameraActionStopButton);
 
@@ -841,15 +852,15 @@ export class Html5QrcodeScanner {
 
         const resetCameraActionStartButton = (shouldShow: boolean) => {
             if (!shouldShow) {
-                cameraActionStartButton.style.display = "none";
+                hideElement(cameraActionStartButton);
             }
             cameraActionStartButton.innerText
                 = Html5QrcodeScannerStrings
                     .scanButtonStartScanningText();
-            cameraActionStartButton.style.opacity = "1";
+            setVisuallyDisabled(cameraActionStartButton, false);
             cameraActionStartButton.disabled = false;
             if (shouldShow) {
-                cameraActionStartButton.style.display = "inline-block";
+                showElement(cameraActionStartButton, "inline-block");
             }
         };
 
@@ -859,7 +870,7 @@ export class Html5QrcodeScanner {
                 = Html5QrcodeScannerStrings.scanButtonScanningStarting();
             cameraSelectUi.disable();
             cameraActionStartButton.disabled = true;
-            cameraActionStartButton.style.opacity = "0.5";
+            setVisuallyDisabled(cameraActionStartButton, true);
             // Swap link is available only when both scan types are required.
             if (this.scanTypeSelector.hasMoreThanOneScanType()) {
                 $this.showHideScanTypeSwapLink(false);
@@ -880,7 +891,7 @@ export class Html5QrcodeScanner {
                     $this.resetAjaxContainer();
 
                     cameraActionStopButton.disabled = false;
-                    cameraActionStopButton.style.display = "inline-block";
+                    showElement(cameraActionStopButton, "inline-block");
                     resetCameraActionStartButton(/* shouldShow= */ false);
 
                     const cameraCapabilities
@@ -924,8 +935,8 @@ export class Html5QrcodeScanner {
                     
                     cameraSelectUi.enable();
                     cameraActionStartButton.disabled = false;
-                    cameraActionStopButton.style.display = "none";
-                    cameraActionStartButton.style.display = "inline-block";
+                    hideElement(cameraActionStopButton);
+                    showElement(cameraActionStartButton, "inline-block");
                     // Reset torch state.
                     if (torchButton) {
                         torchButton.reset();
@@ -962,12 +973,16 @@ export class Html5QrcodeScanner {
         // TODO(minhaz): Export this as an UI element.
         const section = document.getElementById(this.getDashboardSectionId())!;
         const switchContainer = document.createElement("div");
-        switchContainer.style.textAlign = "center";
+        applyStyle(switchContainer, CssClassNames.SWAP_CONTAINER, {
+            textAlign: "center"
+        });
         const switchScanTypeLink
             = BaseUiElementFactory.createElement<HTMLAnchorElement>(
                 "span", this.getDashboardSectionSwapLinkId());
-        switchScanTypeLink.style.textDecoration = "underline";
-        switchScanTypeLink.style.cursor = "pointer";
+        applyStyle(switchScanTypeLink, CssClassNames.SWAP_LINK, {
+            textDecoration: "underline",
+            cursor: "pointer"
+        });
         switchScanTypeLink.innerText
             = ScanTypeSelector.isCameraScanType(this.currentScanType)
             ? TEXT_IF_CAMERA_SCAN_SELECTED : TEXT_IF_FILE_SCAN_SELECTED;
@@ -989,7 +1004,7 @@ export class Html5QrcodeScanner {
             if (ScanTypeSelector.isCameraScanType($this.currentScanType)) {
                 // Swap to file based scanning.
                 $this.clearScanRegion();
-                $this.getCameraScanRegion().style.display = "none";
+                hideElement($this.getCameraScanRegion());
                 $this.fileSelectionUi!.show();
                 switchScanTypeLink.innerText = TEXT_IF_FILE_SCAN_SELECTED;
                 $this.currentScanType = Html5QrcodeScanType.SCAN_TYPE_FILE;
@@ -997,7 +1012,7 @@ export class Html5QrcodeScanner {
             } else {
                 // Swap to camera based scanning.
                 $this.clearScanRegion();
-                $this.getCameraScanRegion().style.display = "block";
+                showElement($this.getCameraScanRegion(), "block");
                 $this.fileSelectionUi!.hide();
                 switchScanTypeLink.innerText = TEXT_IF_CAMERA_SCAN_SELECTED;
                 $this.currentScanType = Html5QrcodeScanType.SCAN_TYPE_CAMERA;
@@ -1045,7 +1060,13 @@ export class Html5QrcodeScanner {
     private resetHeaderMessage() {
         const messageDiv = document.getElementById(
             this.getHeaderMessageContainerId())!;
-        messageDiv.style.display = "none";
+        hideElement(messageDiv);
+        if (CssConfig.isExternalCss()) {
+            messageDiv.classList.remove(CssClassNames.HEADER_MESSAGE_VISIBLE);
+            messageDiv.classList.remove(CssClassNames.STATUS_SUCCESS);
+            messageDiv.classList.remove(CssClassNames.STATUS_WARNING);
+            messageDiv.classList.remove(CssClassNames.STATUS_DEFAULT);
+        }
     }
 
     private setHeaderMessage(
@@ -1056,22 +1077,43 @@ export class Html5QrcodeScanner {
 
         const messageDiv = this.getHeaderMessageDiv();
         messageDiv.innerText = messageText;
-        messageDiv.style.display = "block";
+        showElement(messageDiv, "block");
 
-        switch (scannerStatus) {
-            case Html5QrcodeScannerStatus.STATUS_SUCCESS:
-                messageDiv.style.background = "rgba(106, 175, 80, 0.26)";
-                messageDiv.style.color = "#477735";
-                break;
-            case Html5QrcodeScannerStatus.STATUS_WARNING:
-                messageDiv.style.background = "rgba(203, 36, 49, 0.14)";
-                messageDiv.style.color = "#cb2431";
-                break;
-            case Html5QrcodeScannerStatus.STATUS_DEFAULT:
-            default:
-                messageDiv.style.background = "rgba(0, 0, 0, 0)";
-                messageDiv.style.color = "rgb(17, 17, 17)";
-                break;
+        if (CssConfig.isExternalCss()) {
+            messageDiv.classList.add(CssClassNames.HEADER_MESSAGE_VISIBLE);
+            // Remove old status classes
+            messageDiv.classList.remove(CssClassNames.STATUS_SUCCESS);
+            messageDiv.classList.remove(CssClassNames.STATUS_WARNING);
+            messageDiv.classList.remove(CssClassNames.STATUS_DEFAULT);
+
+            switch (scannerStatus) {
+                case Html5QrcodeScannerStatus.STATUS_SUCCESS:
+                    messageDiv.classList.add(CssClassNames.STATUS_SUCCESS);
+                    break;
+                case Html5QrcodeScannerStatus.STATUS_WARNING:
+                    messageDiv.classList.add(CssClassNames.STATUS_WARNING);
+                    break;
+                case Html5QrcodeScannerStatus.STATUS_DEFAULT:
+                default:
+                    messageDiv.classList.add(CssClassNames.STATUS_DEFAULT);
+                    break;
+            }
+        } else {
+            switch (scannerStatus) {
+                case Html5QrcodeScannerStatus.STATUS_SUCCESS:
+                    messageDiv.style.background = "rgba(106, 175, 80, 0.26)";
+                    messageDiv.style.color = "#477735";
+                    break;
+                case Html5QrcodeScannerStatus.STATUS_WARNING:
+                    messageDiv.style.background = "rgba(203, 36, 49, 0.14)";
+                    messageDiv.style.color = "#cb2431";
+                    break;
+                case Html5QrcodeScannerStatus.STATUS_DEFAULT:
+                default:
+                    messageDiv.style.background = "rgba(0, 0, 0, 0)";
+                    messageDiv.style.color = "rgb(17, 17, 17)";
+                    break;
+            }
         }
     }
 
@@ -1082,8 +1124,12 @@ export class Html5QrcodeScanner {
             }
 
             this.sectionSwapAllowed = shouldDisplay;
-            this.getDashboardSectionSwapLink().style.display
-                = shouldDisplay ? "inline-block" : "none";
+            const swapLink = this.getDashboardSectionSwapLink();
+            if (shouldDisplay) {
+                showElement(swapLink, "inline-block");
+            } else {
+                hideElement(swapLink);
+            }
         }
     }
 
@@ -1104,7 +1150,9 @@ export class Html5QrcodeScanner {
             qrCodeScanRegion.appendChild($this.cameraScanImage!);
         }
         this.cameraScanImage.width = 64;
-        this.cameraScanImage.style.opacity = "0.8";
+        applyStyle(this.cameraScanImage, CssClassNames.CAMERA_SCAN_IMAGE, {
+            opacity: "0.8"
+        });
         this.cameraScanImage.src = ASSET_CAMERA_SCAN;
         this.cameraScanImage.alt = Html5QrcodeScannerStrings.cameraScanAltText();
     }
@@ -1126,7 +1174,9 @@ export class Html5QrcodeScanner {
             qrCodeScanRegion.appendChild($this.fileScanImage!);
         }
         this.fileScanImage.width = 64;
-        this.fileScanImage.style.opacity = "0.8";
+        applyStyle(this.fileScanImage, CssClassNames.FILE_SCAN_IMAGE, {
+            opacity: "0.8"
+        });
         this.fileScanImage.src = ASSET_FILE_SCAN;
         this.fileScanImage.alt = Html5QrcodeScannerStrings.fileScanAltText();
     }

@@ -16,6 +16,11 @@ import {
 import {
     Html5QrcodeScannerStrings
 } from "../../strings";
+import {
+    CssClassNames,
+    applyStyle,
+    hideElement
+} from "../../css-config";
 
 /** Class for rendering and handling camera selection UI. */
 export class CameraSelectionUi {
@@ -37,14 +42,16 @@ export class CameraSelectionUi {
     private render(
         parentElement: HTMLElement) {
         const cameraSelectionContainer = document.createElement("span");
-        cameraSelectionContainer.style.marginRight = "10px";
+        applyStyle(cameraSelectionContainer, CssClassNames.CAMERA_SELECTION, {
+            marginRight: "10px"
+        });
         const numCameras = this.cameras.length;
         if (numCameras === 0) {
             throw new Error("No cameras found");
         }
         if (numCameras === 1) {
             // If only one camera is found, don't show camera selection.
-            cameraSelectionContainer.style.display = "none";
+            hideElement(cameraSelectionContainer);
         } else {
             // Otherwise, show the number of cameras found as well.
             const selectCameraString = Html5QrcodeScannerStrings.selectCamera();

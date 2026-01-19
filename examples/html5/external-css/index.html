@@ -6,26 +6,57 @@
     <title>QR Code Scanner - External CSS Example</title>
     <link rel="stylesheet" href="style.css">
     <script src="../../../dist/html5-qrcode.min.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        h1 { font-size: 1.5em; }
+        h2 { font-size: 1.2em; margin-top: 30px; }
+        .success { background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        .config-info { background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 20px 0; }
+        .config-info code { background: #e9ecef; padding: 2px 5px; border-radius: 3px; }
+    </style>
 </head>
 <body>
-    <h1>QR Code Scanner - External CSS + German</h1>
+    <h1>QR Code Scanner - Alle Features Demo</h1>
+
+    <div class="config-info">
+        <strong>Aktive Konfiguration:</strong><br>
+        <code>lang: "de"</code> - Deutsche Benutzeroberfläche<br>
+        <code>inlineCSS: false</code> - Externes CSS<br>
+        <code>supportedScanTypes: [SCAN_TYPE_CAMERA]</code> - Nur Kamera (kein Datei-Upload)
+    </div>
 
     <div id="reader"></div>
 
     <!-- Optional: External AJAX response container -->
-    <div id="reader__ajax_response" data-infotext="Scan a QR code to see the result here.">
-        Scan a QR code to see the result here.
+    <div id="reader__ajax_response" data-infotext="Scanne einen QR-Code um das Ergebnis hier zu sehen.">
+        Scanne einen QR-Code um das Ergebnis hier zu sehen.
+    </div>
+
+    <h2>Konfigurationsoptionen</h2>
+    <div class="config-info">
+        <strong>FileScan deaktivieren:</strong><br>
+        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]</code><br><br>
+
+        <strong>Nur FileScan (keine Kamera):</strong><br>
+        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_FILE]</code><br><br>
+
+        <strong>Beides aktivieren (Standard):</strong><br>
+        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE]</code>
     </div>
 
     <script>
-        // Example configuration with all new features:
+        // Example configuration with all custom features:
         // - lang: "de" for German UI
         // - inlineCSS: false for external CSS styling
+        // - supportedScanTypes: Camera only (no file upload)
         const config = {
             fps: 10,
             qrbox: { width: 250, height: 250 },
-            lang: "de",           // German language
-            inlineCSS: false      // Use external CSS classes
+            lang: "de",                        // German language
+            inlineCSS: false,                  // Use external CSS classes
+            supportedScanTypes: [
+                Html5QrcodeScanType.SCAN_TYPE_CAMERA  // Camera only, no file scan
+            ]
         };
 
         const scanner = new Html5QrcodeScanner("reader", config, /* verbose= */ false);
@@ -36,7 +67,7 @@
             // Update the AJAX response container
             const container = document.getElementById("reader__ajax_response");
             if (container) {
-                container.innerHTML = `<strong>Scanned:</strong> ${decodedText}`;
+                container.innerHTML = `<strong>Gescannt:</strong> ${decodedText}`;
                 container.className = "success";
             }
         }

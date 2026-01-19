@@ -11,6 +11,12 @@
 import { ASSET_CLOSE_ICON_16PX, ASSET_INFO_ICON_16PX } from "./image-assets";
 
 import { LibraryInfoStrings } from "./strings";
+import {
+    CssClassNames,
+    applyStyle,
+    showElement,
+    hideElement
+} from "./css-config";
 
 type OnClickListener0 = () => void;
 
@@ -24,26 +30,30 @@ class LibraryInfoDiv {
     }
 
     public renderInto(parent: HTMLElement) {
-        this.infoDiv.style.position = "absolute";
-        this.infoDiv.style.top = "10px";
-        this.infoDiv.style.right = "10px";
-        this.infoDiv.style.zIndex = "2";
-        this.infoDiv.style.display = "none";
-        this.infoDiv.style.padding = "5pt";
-        this.infoDiv.style.border = "1px solid #171717";
-        this.infoDiv.style.fontSize = "10pt";
-        this.infoDiv.style.background = "rgb(0 0 0 / 69%)";
-        this.infoDiv.style.borderRadius = "5px";
-        this.infoDiv.style.textAlign = "center";
-        this.infoDiv.style.fontWeight = "400";
-        this.infoDiv.style.color = "white";
+        applyStyle(this.infoDiv, CssClassNames.LIBRARY_INFO, {
+            position: "absolute",
+            top: "10px",
+            right: "10px",
+            zIndex: "2",
+            display: "none",
+            padding: "5pt",
+            border: "1px solid #171717",
+            fontSize: "10pt",
+            background: "rgb(0 0 0 / 69%)",
+            borderRadius: "5px",
+            textAlign: "center",
+            fontWeight: "400",
+            color: "white"
+        });
 
         this.infoDiv.innerText = LibraryInfoStrings.poweredBy();
         const projectLink = document.createElement("a");
         projectLink.innerText = "ScanApp";
         projectLink.href = "https://scanapp.org";
         projectLink.target = "new";
-        projectLink.style.color = "white";
+        applyStyle(projectLink, CssClassNames.LIBRARY_INFO_LINK, {
+            color: "white"
+        });
         this.infoDiv.appendChild(projectLink);
 
         const breakElemFirst = document.createElement("br");
@@ -55,18 +65,20 @@ class LibraryInfoDiv {
         reportIssueLink.innerText = LibraryInfoStrings.reportIssues();
         reportIssueLink.href = "https://github.com/mebjas/html5-qrcode/issues";
         reportIssueLink.target = "new";
-        reportIssueLink.style.color = "white";
+        applyStyle(reportIssueLink, CssClassNames.LIBRARY_INFO_LINK, {
+            color: "white"
+        });
         this.infoDiv.appendChild(reportIssueLink);
 
         parent.appendChild(this.infoDiv);
     }
 
     public show() {
-        this.infoDiv.style.display = "block";
+        showElement(this.infoDiv, "block");
     }
 
     public hide() {
-        this.infoDiv.style.display = "none";
+        hideElement(this.infoDiv);
     }
 }
 

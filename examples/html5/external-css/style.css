@@ -1,9 +1,43 @@
 /**
- * Example CSS file for html5-qrcode with inlineCSS: false
+ * External CSS file for html5-qrcode with inlineCSS: false
  * These classes match the CssClassNames in src/css-config.ts
+ *
+ * Usage: Set config option { inlineCSS: false } and include this CSS file.
  */
 
-/* Parent container */
+/* ===========================================
+   Display States
+   =========================================== */
+.qr-reader__hidden {
+    display: none !important;
+}
+
+.qr-reader__visible {
+    display: block;
+}
+
+.qr-reader__visible_block {
+    display: block;
+}
+
+.qr-reader__visible_inline_block {
+    display: inline-block;
+}
+
+/* ===========================================
+   Element States
+   =========================================== */
+.qr-reader__disabled {
+    opacity: 0.5;
+}
+
+.qr-reader__enabled {
+    opacity: 1;
+}
+
+/* ===========================================
+   Parent Container
+   =========================================== */
 .qr-reader__parent {
     position: relative;
     padding: 0px;
@@ -14,7 +48,9 @@
     border: none;
 }
 
-/* Scan region */
+/* ===========================================
+   Scan Region
+   =========================================== */
 .qr-reader__scanregion {
     width: 100%;
     min-height: 100px;
@@ -25,7 +61,9 @@
     background-color: #f0f0f0;
 }
 
-/* Text alignment */
+/* ===========================================
+   Text Alignment
+   =========================================== */
 .qr-reader__text_center {
     text-align: center;
 }
@@ -34,7 +72,9 @@
     text-align: left;
 }
 
-/* Dashboard */
+/* ===========================================
+   Dashboard
+   =========================================== */
 .qr-reader__dashboard {
     width: 100%;
 }
@@ -45,7 +85,9 @@
     text-align: left;
 }
 
-/* Header */
+/* ===========================================
+   Header
+   =========================================== */
 .qr-reader__header {
     text-align: left;
     margin: 0px;
@@ -69,18 +111,18 @@
 }
 
 .qr-reader__status_success {
-    background: #6aaf5042;
-    color: #477735;
+    background: rgba(106, 175, 80, 0.26) !important;
+    color: #477735 !important;
 }
 
 .qr-reader__status_warning {
-    background: #cb243124;
-    color: #cb2431;
+    background: rgba(203, 36, 49, 0.14) !important;
+    color: #cb2431 !important;
 }
 
 .qr-reader__status_default {
-    background: #eef;
-    color: rgb(17, 17, 17);
+    background: rgba(0, 0, 0, 0) !important;
+    color: rgb(17, 17, 17) !important;
 }
 
 .qr-reader__header_message {
@@ -92,12 +134,25 @@
     border-top: 1px solid #f6f6f6;
 }
 
-/* Camera selection */
+.qr-reader__header_message--visible {
+    display: block !important;
+}
+
+/* ===========================================
+   Camera Selection
+   =========================================== */
 .qr-reader__camera_selection {
     margin-right: 10px;
 }
 
-/* File input */
+/* ===========================================
+   File Selection / Drop Zone
+   =========================================== */
+.qr-reader__file_selection_label {
+    display: inline-block;
+    font-weight: 400;
+}
+
 .qr-reader__file_input {
     width: 200px;
 }
@@ -107,9 +162,88 @@
     cursor: pointer;
 }
 
-/* Images */
+.qr-reader__drop_zone {
+    text-align: center;
+    margin: auto;
+    width: 80%;
+    max-width: 600px;
+    border: 6px dashed #ebebeb;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+.qr-reader__drop_zone--active {
+    border: 6px dashed rgb(153, 151, 151) !important;
+}
+
+/* ===========================================
+   Images
+   =========================================== */
 .qr-reader__camera_scan_image,
 .qr-reader__file_scan_image {
     width: 64px;
-    opacity: 0.3;
+    opacity: 0.8;
+}
+
+/* ===========================================
+   Swap Link (Camera/File toggle)
+   =========================================== */
+.qr-reader__swap_container {
+    text-align: center;
+}
+
+.qr-reader__swap_link {
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* ===========================================
+   Zoom Controls
+   =========================================== */
+.qr-reader__zoom_container {
+    padding: 5px 10px;
+    text-align: center;
+}
+
+.qr-reader__zoom_slider {
+    display: inline-block;
+    width: 50%;
+    height: 5px;
+    background: #d3d3d3;
+    outline: none;
+    opacity: 0.7;
+}
+
+.qr-reader__zoom_label {
+    margin-right: 10px;
+}
+
+/* ===========================================
+   Torch Button
+   =========================================== */
+.qr-reader__torch_button {
+    margin-left: 5px;
+}
+
+/* ===========================================
+   Library Info
+   =========================================== */
+.qr-reader__library_info {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: none;
+    padding: 5pt;
+    border: 1px solid #171717;
+    font-size: 10pt;
+    background: rgb(0 0 0 / 69%);
+    border-radius: 5px;
+    text-align: center;
+    font-weight: 400;
+    color: white;
+}
+
+.qr-reader__library_info_link {
+    color: white;
 }

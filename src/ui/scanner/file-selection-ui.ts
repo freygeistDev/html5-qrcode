@@ -13,6 +13,13 @@ import {
     BaseUiElementFactory,
     PublicUiElementIdAndClasses
 } from "./base";
+import {
+    CssConfig,
+    CssClassNames,
+    applyStyle,
+    showElement,
+    hideElement
+} from "../../css-config";
 
 /**
  * Interface for callback when a file is selected by user using the button.
@@ -32,13 +39,18 @@ export class FileSelectionUi {
         showOnRender: boolean,
         onFileSelected: OnFileSelected) {
         this.fileBasedScanRegion = this.createFileBasedScanRegion();
-        this.fileBasedScanRegion.style.display
-            = showOnRender ? "block" : "none";
+        if (showOnRender) {
+            showElement(this.fileBasedScanRegion, "block");
+        } else {
+            hideElement(this.fileBasedScanRegion);
+        }
         parentElement.appendChild(this.fileBasedScanRegion);
 
         let fileScanLabel = document.createElement("label");
         fileScanLabel.setAttribute("for", this.getFileScanInputId());
-        fileScanLabel.style.display = "inline-block";
+        applyStyle(fileScanLabel, CssClassNames.FILE_SELECTION_LABEL, {
+            display: "inline-block"
+        });
 
         this.fileBasedScanRegion.appendChild(fileScanLabel);
         
@@ -59,7 +71,7 @@ export class FileSelectionUi {
                 "input", this.getFileScanInputId());
         this.fileScanInput.type = "file";
         this.fileScanInput.accept = "image/*";
-        this.fileScanInput.style.display = "none";
+        hideElement(this.fileScanInput);
         fileScanLabel.appendChild(this.fileScanInput);
         
         let $this = this;
@@ -85,25 +97,19 @@ export class FileSelectionUi {
         this.fileBasedScanRegion.appendChild(dragAndDropMessage);
 
         this.fileBasedScanRegion.addEventListener("dragenter", function(event) {
-            $this.fileBasedScanRegion.style.border
-                = $this.fileBasedScanRegionActiveBorder();
-
+            $this.setActiveBorder();
             event.stopPropagation();
             event.preventDefault();
         });
 
         this.fileBasedScanRegion.addEventListener("dragleave", function(event) {
-            $this.fileBasedScanRegion.style.border
-                = $this.fileBasedScanRegionDefaultBorder();
-
+            $this.setDefaultBorder();
             event.stopPropagation();
             event.preventDefault();
         });
 
         this.fileBasedScanRegion.addEventListener("dragover", function(event) {
-            $this.fileBasedScanRegion.style.border
-                = $this.fileBasedScanRegionActiveBorder();
-
+            $this.setActiveBorder();
             event.stopPropagation();
             event.preventDefault();
         });
@@ -113,8 +119,7 @@ export class FileSelectionUi {
             event.stopPropagation();
             event.preventDefault();
 
-            $this.fileBasedScanRegion.style.border
-                = $this.fileBasedScanRegionDefaultBorder();
+            $this.setDefaultBorder();
 
             var dataTransfer = event.dataTransfer;
             if (dataTransfer) {
@@ -159,18 +164,21 @@ export class FileSelectionUi {
     //#region Public APIs.
     /** Hide the file selection UI. */
     public hide() {
-        this.fileBasedScanRegion.style.display = "none";
+        hideElement(this.fileBasedScanRegion);
         this.fileScanInput.disabled = true;
     }
 
     /** Show the file selection UI. */
     public show() {
-        this.fileBasedScanRegion.style.display = "block";
+        showElement(this.fileBasedScanRegion, "block");
         this.fileScanInput.disabled = false;
     }
 
     /** Returns {@code true} if UI container is displayed. */
     public isShowing(): boolean {
+        if (CssConfig.isExternalCss()) {
+            return !this.fileBasedScanRegion.classList.contains(CssClassNames.HIDDEN);
+        }
         return this.fileBasedScanRegion.style.display === "block";
     }
 
@@ -184,14 +192,15 @@ export class FileSelectionUi {
     //#region private APIs
     private createFileBasedScanRegion(): HTMLDivElement {
         let fileBasedScanRegion = document.createElement("div");
-        fileBasedScanRegion.style.textAlign = "center";
-        fileBasedScanRegion.style.margin = "auto";
-        fileBasedScanRegion.style.width = "80%";
-        fileBasedScanRegion.style.maxWidth = "600px";
-        fileBasedScanRegion.style.border
-            = this.fileBasedScanRegionDefaultBorder();
-        fileBasedScanRegion.style.padding = "10px";
-        fileBasedScanRegion.style.marginBottom = "10px";
+        applyStyle(fileBasedScanRegion, CssClassNames.DROP_ZONE, {
+            textAlign: "center",
+            margin: "auto",
+            width: "80%",
+            maxWidth: "600px",
+            border: this.fileBasedScanRegionDefaultBorder(),
+            padding: "10px",
+            marginBottom: "10px"
+        });
         return fileBasedScanRegion;
     }
 
@@ -204,11 +213,29 @@ export class FileSelectionUi {
         return "6px dashed rgb(153 151 151)";
     }
 
+    private setActiveBorder() {
+        if (CssConfig.isExternalCss()) {
+            this.fileBasedScanRegion.classList.add(CssClassNames.DROP_ZONE_ACTIVE);
+        } else {
+            this.fileBasedScanRegion.style.border = this.fileBasedScanRegionActiveBorder();
+        }
+    }
+
+    private setDefaultBorder() {
+        if (CssConfig.isExternalCss()) {
+            this.fileBasedScanRegion.classList.remove(CssClassNames.DROP_ZONE_ACTIVE);
+        } else {
+            this.fileBasedScanRegion.style.border = this.fileBasedScanRegionDefaultBorder();
+        }
+    }
+
     private createDragAndDropMessage(): HTMLDivElement {
         let dragAndDropMessage = document.createElement("div");
         dragAndDropMessage.innerText
             = Html5QrcodeScannerStrings.dragAndDropMessage();
-        dragAndDropMessage.style.fontWeight = "400";
+        applyStyle(dragAndDropMessage, CssClassNames.FILE_SELECTION_LABEL, {
+            fontWeight: "400"
+        });
         return dragAndDropMessage;
     }
 
