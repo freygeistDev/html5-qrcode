@@ -35,6 +35,8 @@ import {
 
 import {
     Html5QrcodeScannerStrings,
+    LanguageConfig,
+    SupportedLanguage,
 } from "./strings";
 
 import {
@@ -136,12 +138,20 @@ export interface Html5QrcodeScannerConfig
 
     /**
      * Default zoom value if supported.
-     * 
+     *
      * Note: default value is 1x.
-     * 
+     *
      * TODO(minhazav): Document this API, currently hidden.
      */
     defaultZoomValueIfSupported?: number | undefined;
+
+    /**
+     * Language for UI strings.
+     *
+     * Supported values: "en" (English), "de" (German)
+     * Note: default value is "en".
+     */
+    lang?: SupportedLanguage | undefined;
 }
 
 function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
@@ -212,6 +222,11 @@ export class Html5QrcodeScanner {
         this.elementId = elementId;
         this.config = this.createConfig(config);
         this.verbose = verbose === true;
+
+        // Set language for UI strings
+        if (config?.lang) {
+            LanguageConfig.setLanguage(config.lang);
+        }
 
         if (!document.getElementById(elementId)) {
             throw `HTML Element with id=${elementId} not found`;

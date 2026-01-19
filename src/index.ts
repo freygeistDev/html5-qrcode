@@ -18,6 +18,7 @@ export {
     Html5QrcodeCameraScanConfig
 } from "./html5-qrcode";
 export { Html5QrcodeScanner } from "./html5-qrcode-scanner";
+export { LanguageConfig, SupportedLanguage } from "./strings";
 export {
     Html5QrcodeSupportedFormats,
     Html5QrcodeResult,

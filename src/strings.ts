@@ -1,17 +1,35 @@
 /**
  * @fileoverview
  * Strings used by {@class Html5Qrcode} & {@class Html5QrcodeScanner}
- * 
+ *
  * @author mebjas <minhazav@gmail.com>
- * 
+ *
  * The word "QR Code" is registered trademark of DENSO WAVE INCORPORATED
  * http://www.denso-wave.com/qrcode/faqpatent-e.html
  */
 
+/** Supported languages for internationalization. */
+export type SupportedLanguage = "en" | "de";
+
+/** Language configuration for strings. */
+export class LanguageConfig {
+    private static currentLanguage: SupportedLanguage = "en";
+
+    public static setLanguage(lang: SupportedLanguage): void {
+        LanguageConfig.currentLanguage = lang;
+    }
+
+    public static getLanguage(): SupportedLanguage {
+        return LanguageConfig.currentLanguage;
+    }
+
+    public static isGerman(): boolean {
+        return LanguageConfig.currentLanguage === "de";
+    }
+}
+
 /**
  * Strings used in {@class Html5Qrcode}.
- * 
- * TODO(mebjas): Support internalization.
  */
 export class Html5QrcodeStrings {
 
@@ -55,27 +73,29 @@ export class Html5QrcodeStrings {
 export class Html5QrcodeScannerStrings {
 
     public static scanningStatus(): string {
-        return "Scanning";
+        return LanguageConfig.isGerman() ? "Scannen" : "Scanning";
     }
 
     public static idleStatus(): string {
-        return "Idle";
+        return LanguageConfig.isGerman() ? "Leerlauf" : "Idle";
     }
 
     public static errorStatus(): string {
-        return "Error";
+        return LanguageConfig.isGerman() ? "Fehler" : "Error";
     }
 
     public static permissionStatus(): string {
-        return "Permission";
+        return LanguageConfig.isGerman() ? "Genehmigung" : "Permission";
     }
 
     public static noCameraFoundErrorStatus(): string {
-        return "No Cameras";
+        return LanguageConfig.isGerman() ? "Keine Kameras" : "No Cameras";
     }
 
     public static lastMatch(decodedText: string): string {
-        return `Last Match: ${decodedText}`;
+        return LanguageConfig.isGerman()
+            ? `Letzte Übereinstimmung: ${decodedText}`
+            : `Last Match: ${decodedText}`;
     }
 
     public static codeScannerTitle(): string {
@@ -83,107 +103,143 @@ export class Html5QrcodeScannerStrings {
     }
 
     public static cameraPermissionTitle(): string {
-        return "Request Camera Permissions";
+        return LanguageConfig.isGerman()
+            ? "Kameraberechtigungen anfordern"
+            : "Request Camera Permissions";
     }
 
     public static cameraPermissionRequesting(): string {
-        return "Requesting camera permissions...";
+        return LanguageConfig.isGerman()
+            ? "Kameraberechtigungen anfordern..."
+            : "Requesting camera permissions...";
     }
 
     public static noCameraFound(): string {
-        return "No camera found";
+        return LanguageConfig.isGerman()
+            ? "Keine Kamera gefunden"
+            : "No camera found";
     }
 
     public static scanButtonStopScanningText(): string {
-        return "Stop Scanning";
+        return LanguageConfig.isGerman() ? "Scannen beenden" : "Stop Scanning";
     }
 
     public static scanButtonStartScanningText(): string {
-        return "Start Scanning";
+        return LanguageConfig.isGerman() ? "Scan starten" : "Start Scanning";
     }
 
     public static torchOnButton(): string {
-        return "Switch On Torch";
+        return LanguageConfig.isGerman()
+            ? "Taschenlampe einschalten"
+            : "Switch On Torch";
     }
 
     public static torchOffButton(): string {
-        return "Switch Off Torch";
+        return LanguageConfig.isGerman()
+            ? "Taschenlampe ausschalten"
+            : "Switch Off Torch";
     }
 
     public static torchOnFailedMessage(): string {
-        return "Failed to turn on torch";
+        return LanguageConfig.isGerman()
+            ? "Taschenlampe konnte nicht eingeschaltet werden"
+            : "Failed to turn on torch";
     }
 
     public static torchOffFailedMessage(): string {
-        return "Failed to turn off torch";
+        return LanguageConfig.isGerman()
+            ? "Taschenlampe konnte nicht ausgeschaltet werden"
+            : "Failed to turn off torch";
     }
 
     public static scanButtonScanningStarting(): string {
-        return "Launching Camera...";
+        return LanguageConfig.isGerman()
+            ? "Kamera wird gestartet..."
+            : "Launching Camera...";
     }
 
     /**
      * Text to show when camera scan is selected.
-     * 
+     *
      * This will be used to switch to file based scanning.
      */
     public static textIfCameraScanSelected(): string {
-        return "Scan an Image File";
+        return LanguageConfig.isGerman()
+            ? "Bilddatei scannen"
+            : "Scan an Image File";
     }
 
     /**
      * Text to show when file based scan is selected.
-     * 
+     *
      * This will be used to switch to camera based scanning.
      */
     public static textIfFileScanSelected(): string {
-        return "Scan using camera directly";
+        return LanguageConfig.isGerman()
+            ? "Mit Kamera direkt scannen"
+            : "Scan using camera directly";
     }
 
     public static selectCamera(): string {
-        return "Select Camera";
+        return LanguageConfig.isGerman() ? "Kamera wählen" : "Select Camera";
     }
 
     public static fileSelectionChooseImage(): string {
-        return "Choose Image";
+        return LanguageConfig.isGerman() ? "Bild auswählen" : "Choose Image";
     }
 
     public static fileSelectionChooseAnother(): string {
-        return "Choose Another";
+        return LanguageConfig.isGerman()
+            ? "Anderes Bild wählen"
+            : "Choose Another";
     }
 
     public static fileSelectionNoImageSelected(): string {
-        return "No image choosen";
+        return LanguageConfig.isGerman()
+            ? "Kein Bild ausgewählt"
+            : "No image choosen";
     }
 
     /** Prefix to be given to anonymous cameras. */
     public static anonymousCameraPrefix(): string {
-        return "Anonymous Camera";
+        return LanguageConfig.isGerman()
+            ? "Anonyme Kamera"
+            : "Anonymous Camera";
     }
 
     public static dragAndDropMessage(): string {
-        return "Or drop an image to scan";
+        return LanguageConfig.isGerman()
+            ? "Oder Bild zum Scannen ablegen"
+            : "Or drop an image to scan";
     }
 
     public static dragAndDropMessageOnlyImages(): string {
-        return "Or drop an image to scan (other files not supported)";
+        return LanguageConfig.isGerman()
+            ? "Oder Bild zum Scannen ablegen (andere Dateien nicht unterstützt)"
+            : "Or drop an image to scan (other files not supported)";
     }
 
     /** Value for zoom. */
     public static zoom(): string {
-        return "zoom";
+        return "Zoom";
     }
 
     public static loadingImage(): string {
-        return "Loading image...";
+        return LanguageConfig.isGerman()
+            ? "Bild wird geladen..."
+            : "Loading image...";
     }
 
     public static cameraScanAltText(): string {
-        return "Camera based scan";
+        return LanguageConfig.isGerman()
+            ? "Kamerabasierter Scan"
+            : "Camera based scan";
     }
 
     public static fileScanAltText(): string {
-        return "Fule based scan";
+        return LanguageConfig.isGerman()
+            ? "Dateibasierter Scan"
+            : "File based scan";
     }
 }
 
