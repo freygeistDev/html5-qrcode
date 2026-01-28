@@ -3,80 +3,757 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code Scanner - External CSS Example</title>
+    <title>QR Code & Data Matrix Scanner - Debug Mode</title>
     <link rel="stylesheet" href="style.css">
     <script src="../../../dist/html5-qrcode.min.js"></script>
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { font-size: 1.5em; }
-        h2 { font-size: 1.2em; margin-top: 30px; }
-        .success { background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-top: 10px; }
-        .config-info { background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 20px 0; }
-        .config-info code { background: #e9ecef; padding: 2px 5px; border-radius: 3px; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { font-size: 1.5em; color: #333; }
+        h2 { font-size: 1.2em; margin-top: 25px; color: #555; }
+        h3 { font-size: 1.0em; margin-top: 15px; color: #666; }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success {
+            background: #d4edda !important;
+            color: #155724 !important;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            border: 1px solid #c3e6cb;
+        }
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin: 15px 0;
+        }
+        .config-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #007bff;
+        }
+        .config-item label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #333;
+            font-size: 0.9em;
+        }
+        .config-item select,
+        .config-item input[type="number"],
+        .config-item input[type="range"] {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .config-item input[type="checkbox"] {
+            margin-right: 6px;
+        }
+        .config-item .checkbox-label {
+            display: inline;
+            font-weight: normal;
+            font-size: 0.9em;
+        }
+        .config-item small {
+            display: block;
+            color: #666;
+            margin-top: 4px;
+            font-size: 0.8em;
+        }
+        .slider-value {
+            display: inline-block;
+            min-width: 40px;
+            text-align: right;
+            font-weight: bold;
+            color: #007bff;
+        }
+        code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: #000; }
+        .btn:hover { opacity: 0.9; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        #reader { border: none !important; }
+
+        /* Debug Preview */
+        .debug-preview {
+            background: #000;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        .debug-preview canvas {
+            max-width: 100%;
+            border: 2px solid #28a745;
+            border-radius: 4px;
+            background: #fff;
+        }
+        .debug-info {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+        }
+        .preset-section {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        .result-details {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .log-entry { margin: 2px 0; }
+        .log-success { color: #6a9955; }
+        .log-error { color: #f14c4c; }
+        .log-info { color: #3794ff; }
+        .note {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .note strong { color: #1976D2; }
+        .advanced-section {
+            border-top: 2px solid #007bff;
+            padding-top: 15px;
+            margin-top: 15px;
+        }
     </style>
 </head>
 <body>
-    <h1>QR Code Scanner - Alle Features Demo</h1>
+    <h1>🔍 QR Code & Data Matrix Scanner - Debug Mode</h1>
+    <p>Vollständige Kontrolle über alle Erkennungsparameter mit Live-Preview</p>
 
-    <div class="config-info">
-        <strong>Aktive Konfiguration:</strong><br>
-        <code>lang: "de"</code> - Deutsche Benutzeroberfläche<br>
-        <code>inlineCSS: false</code> - Externes CSS<br>
-        <code>supportedScanTypes: [SCAN_TYPE_CAMERA]</code> - Nur Kamera (kein Datei-Upload)
+    <div class="card note">
+        <strong>🐛 Debug-Modus:</strong> Aktiviere "Debug-Modus" unten, um das verarbeitete Bild live zu sehen und die perfekten Einstellungen zu finden!
     </div>
 
-    <div id="reader"></div>
+    <!-- Main Configuration -->
+    <div class="card">
+        <h2>⚙️ Basis-Konfiguration</h2>
 
-    <!-- Optional: External AJAX response container -->
-    <div id="reader__ajax_response" data-infotext="Scanne einen QR-Code um das Ergebnis hier zu sehen.">
-        Scanne einen QR-Code um das Ergebnis hier zu sehen.
+        <!-- Presets -->
+        <div class="preset-section">
+            <h3>📦 Schnelleinstellungen (Presets)</h3>
+            <select id="preset-select" style="width:100%;padding:8px;margin-bottom:10px;">
+                <option value="custom">Benutzerdefiniert (Custom)</option>
+                <option value="desktop-datamatrix" selected>Desktop: Data Matrix optimiert</option>
+                <option value="mobile-datamatrix">Mobil: Data Matrix optimiert</option>
+                <option value="qr-standard">QR Code Standard</option>
+                <option value="minimal">Minimal (keine Verarbeitung)</option>
+            </select>
+            <small>Preset wählen lädt optimierte Einstellungen. Kann danach angepasst werden.</small>
+        </div>
+
+        <div class="config-grid">
+            <div class="config-item">
+                <label>Code-Typen</label>
+                <select id="config-formats" multiple size="3">
+                    <option value="qr">QR Code</option>
+                    <option value="datamatrix" selected>Data Matrix</option>
+                    <option value="all">Alle Formate</option>
+                </select>
+            </div>
+            <div class="config-item">
+                <label>Video-Auflösung</label>
+                <select id="config-resolution">
+                    <option value="sd">SD (640x480)</option>
+                    <option value="hd">HD (1280x720)</option>
+                    <option value="fullHd" selected>Full HD (1920x1080)</option>
+                    <option value="4k">4K (3840x2160)</option>
+                </select>
+                <small>Höher = bessere Erkennung kleiner Codes</small>
+            </div>
+            <div class="config-item">
+                <label>Scan-Box Größe: <span class="slider-value" id="qrbox-value">250</span>px</label>
+                <input type="range" id="config-qrbox" value="250" min="50" max="500" step="10">
+            </div>
+            <div class="config-item">
+                <label>FPS (Scans pro Sekunde): <span class="slider-value" id="fps-value">15</span></label>
+                <input type="range" id="config-fps" value="15" min="5" max="30" step="1">
+                <small>Niedriger = weniger CPU-Last</small>
+            </div>
+            <div class="config-item">
+                <label>
+                    <input type="checkbox" id="config-tryharder" checked>
+                    <span class="checkbox-label">TRY_HARDER Modus</span>
+                </label>
+                <small>ZXing strengere Erkennung (empfohlen)</small>
+            </div>
+            <div class="config-item">
+                <label>
+                    <input type="checkbox" id="config-debug">
+                    <span class="checkbox-label">🐛 Debug-Modus</span>
+                </label>
+                <small>Zeigt verarbeitetes Bild an</small>
+            </div>
+        </div>
     </div>
 
-    <h2>Konfigurationsoptionen</h2>
-    <div class="config-info">
-        <strong>FileScan deaktivieren:</strong><br>
-        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]</code><br><br>
+    <!-- Advanced Image Preprocessing -->
+    <div class="card">
+        <h2>🎨 Bildvorverarbeitung (Erweitert)</h2>
+        <div class="advanced-section">
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-enabled" checked>
+                        <span class="checkbox-label">Bildvorverarbeitung aktivieren</span>
+                    </label>
+                    <small>Master-Schalter für alle Verarbeitungen</small>
+                </div>
 
-        <strong>Nur FileScan (keine Kamera):</strong><br>
-        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_FILE]</code><br><br>
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-grayscale" checked>
+                        <span class="checkbox-label">Graustufen-Konvertierung</span>
+                    </label>
+                    <small>Luminanz-basierte Konvertierung</small>
+                </div>
 
-        <strong>Beides aktivieren (Standard):</strong><br>
-        <code>supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE]</code>
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-contrast" checked>
+                        <span class="checkbox-label">Kontrastverstärkung</span>
+                    </label>
+                    <small>Verbessert Code-Lesbarkeit</small>
+                </div>
+
+                <div class="config-item">
+                    <label>Kontrast-Faktor: <span class="slider-value" id="contrast-value">1.8</span>x</label>
+                    <input type="range" id="preproc-contrast-factor" value="1.8" min="1.0" max="3.0" step="0.1">
+                    <small>1.0 = keine Änderung, 3.0 = maximal</small>
+                </div>
+
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-sharpen" checked>
+                        <span class="checkbox-label">Schärfung</span>
+                    </label>
+                    <small>Gegen Webcam-Unschärfe</small>
+                </div>
+
+                <div class="config-item">
+                    <label>Schärfungs-Intensität: <span class="slider-value" id="sharpen-value">0.4</span></label>
+                    <input type="range" id="preproc-sharpen-intensity" value="0.4" min="0.0" max="1.0" step="0.1">
+                    <small>0.0 = keine, 1.0 = maximal</small>
+                </div>
+
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-inverted">
+                        <span class="checkbox-label">Invertierung testen</span>
+                    </label>
+                    <small>Testet auch invertiertes Bild (2x Scans)</small>
+                </div>
+
+                <div class="config-item">
+                    <label>
+                        <input type="checkbox" id="preproc-adaptive">
+                        <span class="checkbox-label">Adaptive Schwellwerte</span>
+                    </label>
+                    <small>Für ungleichmäßige Beleuchtung</small>
+                </div>
+
+                <div class="config-item">
+                    <label>Adaptive Block-Größe: <span class="slider-value" id="adaptive-block-value">11</span></label>
+                    <input type="range" id="preproc-adaptive-block" value="11" min="3" max="31" step="2">
+                    <small>Muss ungerade sein</small>
+                </div>
+
+                <div class="config-item">
+                    <label>Adaptive Konstante: <span class="slider-value" id="adaptive-c-value">2</span></label>
+                    <input type="range" id="preproc-adaptive-c" value="2" min="0" max="10" step="1">
+                    <small>Threshold-Anpassung</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Features -->
+    <div class="card">
+        <h2>📱 Mobile Features (nur Smartphone/Tablet)</h2>
+        <div class="config-grid">
+            <div class="config-item">
+                <label>
+                    <input type="checkbox" id="config-autozoom" checked>
+                    <span class="checkbox-label">Auto-Zoom</span>
+                </label>
+                <small>Automatischer Zoom beim Start</small>
+            </div>
+            <div class="config-item">
+                <label>Zoom-Level: <span class="slider-value" id="zoomlevel-value">2.0</span>x</label>
+                <input type="range" id="config-zoomlevel" value="2.0" min="1.0" max="10.0" step="0.5">
+            </div>
+            <div class="config-item">
+                <label>
+                    <input type="checkbox" id="config-autotorch">
+                    <span class="checkbox-label">Auto-Torch (Blitz)</span>
+                </label>
+                <small>Automatisch bei dunklen Bedingungen</small>
+            </div>
+            <div class="config-item">
+                <label>
+                    <input type="checkbox" id="config-showcontrols" checked>
+                    <span class="checkbox-label">Zoom/Torch Regler anzeigen</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scanner and Debug View -->
+    <div class="two-column">
+        <div class="card">
+            <h2>📷 Scanner</h2>
+            <button class="btn btn-primary" id="btn-start">Scanner starten</button>
+            <button class="btn btn-secondary" id="btn-stop" disabled>Scanner stoppen</button>
+            <div id="reader" style="margin-top:15px;"></div>
+        </div>
+
+        <div class="card" id="debug-panel" style="display:none;">
+            <h2>🐛 Debug Preview</h2>
+            <p>Live-Vorschau des verarbeiteten Bildes (wie der Decoder es sieht)</p>
+            <div class="debug-preview">
+                <canvas id="debug-canvas" width="400" height="400"></canvas>
+                <div class="debug-info" id="debug-info">
+                    Debug-Modus aktiviert. Warte auf Frames...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Display -->
+    <div class="card">
+        <h2>📋 Scan-Ergebnis</h2>
+        <div id="reader__ajax_response" data-infotext="Scanne einen Code um das Ergebnis hier zu sehen.">
+            Scanne einen Code um das Ergebnis hier zu sehen.
+        </div>
+        <div id="result-details" class="result-details" style="display:none;"></div>
+    </div>
+
+    <!-- Log Area -->
+    <div class="card">
+        <h2>📝 Log</h2>
+        <div id="log-area" class="log-area"></div>
+        <button class="btn btn-secondary" onclick="clearLog()" style="margin-top:10px;">Log löschen</button>
     </div>
 
     <script>
-        // Example configuration with all custom features:
-        // - lang: "de" for German UI
-        // - inlineCSS: false for external CSS styling
-        // - supportedScanTypes: Camera only (no file upload)
-        const config = {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            lang: "de",                        // German language
-            inlineCSS: false,                  // Use external CSS classes
-            supportedScanTypes: [
-                Html5QrcodeScanType.SCAN_TYPE_CAMERA  // Camera only, no file scan
-            ]
-        };
+        let scanner = null;
+        let scanCount = 0;
+        let debugMode = false;
+        let debugCanvas = null;
+        let debugContext = null;
 
-        const scanner = new Html5QrcodeScanner("reader", config, /* verbose= */ false);
+        // Initialize debug canvas
+        function initDebugCanvas() {
+            debugCanvas = document.getElementById('debug-canvas');
+            debugContext = debugCanvas.getContext('2d');
+        }
 
+        // Logging functions
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('log-area');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearLog() {
+            document.getElementById('log-area').innerHTML = '';
+        }
+
+        // Update slider value displays
+        document.getElementById('config-qrbox').addEventListener('input', (e) => {
+            document.getElementById('qrbox-value').textContent = e.target.value;
+        });
+        document.getElementById('config-fps').addEventListener('input', (e) => {
+            document.getElementById('fps-value').textContent = e.target.value;
+        });
+        document.getElementById('config-zoomlevel').addEventListener('input', (e) => {
+            document.getElementById('zoomlevel-value').textContent = e.target.value;
+        });
+        document.getElementById('preproc-contrast-factor').addEventListener('input', (e) => {
+            document.getElementById('contrast-value').textContent = e.target.value;
+        });
+        document.getElementById('preproc-sharpen-intensity').addEventListener('input', (e) => {
+            document.getElementById('sharpen-value').textContent = e.target.value;
+        });
+        document.getElementById('preproc-adaptive-block').addEventListener('input', (e) => {
+            // Ensure odd number
+            let val = parseInt(e.target.value);
+            if (val % 2 === 0) val++;
+            e.target.value = val;
+            document.getElementById('adaptive-block-value').textContent = val;
+        });
+        document.getElementById('preproc-adaptive-c').addEventListener('input', (e) => {
+            document.getElementById('adaptive-c-value').textContent = e.target.value;
+        });
+
+        // Debug mode toggle
+        document.getElementById('config-debug').addEventListener('change', (e) => {
+            debugMode = e.target.checked;
+            document.getElementById('debug-panel').style.display = debugMode ? 'block' : 'none';
+            if (debugMode) {
+                initDebugCanvas();
+                log('Debug-Modus aktiviert', 'info');
+            } else {
+                log('Debug-Modus deaktiviert', 'info');
+            }
+        });
+
+        // Preset loader
+        document.getElementById('preset-select').addEventListener('change', (e) => {
+            const preset = e.target.value;
+            log(`Lade Preset: ${preset}`, 'info');
+
+            switch(preset) {
+                case 'desktop-datamatrix':
+                    loadPreset({
+                        formats: ['datamatrix'],
+                        resolution: 'fullHd',
+                        tryHarder: true,
+                        fps: 15,
+                        qrbox: 250,
+                        preprocessing: true,
+                        grayscale: true,
+                        contrast: true,
+                        contrastFactor: 1.8,
+                        sharpen: true,
+                        sharpenIntensity: 0.4,
+                        inverted: true,
+                        adaptive: false
+                    });
+                    break;
+                case 'mobile-datamatrix':
+                    loadPreset({
+                        formats: ['datamatrix'],
+                        resolution: '4k',
+                        tryHarder: true,
+                        fps: 10,
+                        qrbox: 200,
+                        autoZoom: true,
+                        zoomLevel: 2.5,
+                        autoTorch: false,
+                        preprocessing: true,
+                        grayscale: true,
+                        contrast: true,
+                        contrastFactor: 2.0,
+                        sharpen: true,
+                        sharpenIntensity: 0.5,
+                        inverted: true,
+                        adaptive: false
+                    });
+                    break;
+                case 'qr-standard':
+                    loadPreset({
+                        formats: ['qr'],
+                        resolution: 'hd',
+                        tryHarder: false,
+                        fps: 20,
+                        qrbox: 250,
+                        preprocessing: true,
+                        grayscale: false,
+                        contrast: true,
+                        contrastFactor: 1.3,
+                        sharpen: false,
+                        inverted: false,
+                        adaptive: false
+                    });
+                    break;
+                case 'minimal':
+                    loadPreset({
+                        formats: ['qr', 'datamatrix'],
+                        resolution: 'hd',
+                        tryHarder: false,
+                        fps: 20,
+                        qrbox: 250,
+                        preprocessing: false
+                    });
+                    break;
+            }
+        });
+
+        function loadPreset(preset) {
+            // Formats
+            const formatsSelect = document.getElementById('config-formats');
+            Array.from(formatsSelect.options).forEach(opt => opt.selected = false);
+            if (preset.formats) {
+                preset.formats.forEach(f => {
+                    const opt = Array.from(formatsSelect.options).find(o => o.value === f);
+                    if (opt) opt.selected = true;
+                });
+            }
+
+            // Basic settings
+            if (preset.resolution) document.getElementById('config-resolution').value = preset.resolution;
+            if (preset.tryHarder !== undefined) document.getElementById('config-tryharder').checked = preset.tryHarder;
+            if (preset.fps) {
+                document.getElementById('config-fps').value = preset.fps;
+                document.getElementById('fps-value').textContent = preset.fps;
+            }
+            if (preset.qrbox) {
+                document.getElementById('config-qrbox').value = preset.qrbox;
+                document.getElementById('qrbox-value').textContent = preset.qrbox;
+            }
+
+            // Preprocessing
+            if (preset.preprocessing !== undefined) document.getElementById('preproc-enabled').checked = preset.preprocessing;
+            if (preset.grayscale !== undefined) document.getElementById('preproc-grayscale').checked = preset.grayscale;
+            if (preset.contrast !== undefined) document.getElementById('preproc-contrast').checked = preset.contrast;
+            if (preset.contrastFactor) {
+                document.getElementById('preproc-contrast-factor').value = preset.contrastFactor;
+                document.getElementById('contrast-value').textContent = preset.contrastFactor;
+            }
+            if (preset.sharpen !== undefined) document.getElementById('preproc-sharpen').checked = preset.sharpen;
+            if (preset.sharpenIntensity !== undefined) {
+                document.getElementById('preproc-sharpen-intensity').value = preset.sharpenIntensity;
+                document.getElementById('sharpen-value').textContent = preset.sharpenIntensity;
+            }
+            if (preset.inverted !== undefined) document.getElementById('preproc-inverted').checked = preset.inverted;
+            if (preset.adaptive !== undefined) document.getElementById('preproc-adaptive').checked = preset.adaptive;
+
+            // Mobile
+            if (preset.autoZoom !== undefined) document.getElementById('config-autozoom').checked = preset.autoZoom;
+            if (preset.zoomLevel) {
+                document.getElementById('config-zoomlevel').value = preset.zoomLevel;
+                document.getElementById('zoomlevel-value').textContent = preset.zoomLevel;
+            }
+            if (preset.autoTorch !== undefined) document.getElementById('config-autotorch').checked = preset.autoTorch;
+        }
+
+        // Get configuration from UI
+        function getConfig() {
+            const formatsSelect = document.getElementById('config-formats');
+            const selectedFormats = Array.from(formatsSelect.selectedOptions).map(o => o.value);
+
+            let formatsToSupport = [];
+            if (selectedFormats.includes('all')) {
+                formatsToSupport = undefined;
+            } else {
+                if (selectedFormats.includes('qr')) {
+                    formatsToSupport.push(Html5QrcodeSupportedFormats.QR_CODE);
+                }
+                if (selectedFormats.includes('datamatrix')) {
+                    formatsToSupport.push(Html5QrcodeSupportedFormats.DATA_MATRIX);
+                }
+            }
+
+            const qrboxSize = parseInt(document.getElementById('config-qrbox').value) || 250;
+            const fps = parseInt(document.getElementById('config-fps').value) || 15;
+            const showControls = document.getElementById('config-showcontrols').checked;
+
+            // Build custom preprocessing config
+            let imagePreprocessing = null;
+            if (document.getElementById('preproc-enabled').checked) {
+                imagePreprocessing = {
+                    contrastEnhancement: document.getElementById('preproc-contrast').checked,
+                    contrastFactor: parseFloat(document.getElementById('preproc-contrast-factor').value),
+                    grayscale: document.getElementById('preproc-grayscale').checked,
+                    tryInverted: document.getElementById('preproc-inverted').checked,
+                    sharpen: document.getElementById('preproc-sharpen').checked,
+                    sharpenIntensity: parseFloat(document.getElementById('preproc-sharpen-intensity').value),
+                    adaptiveThreshold: document.getElementById('preproc-adaptive').checked,
+                    adaptiveThresholdBlockSize: parseInt(document.getElementById('preproc-adaptive-block').value),
+                    adaptiveThresholdC: parseInt(document.getElementById('preproc-adaptive-c').value)
+                };
+                log('Bildvorverarbeitung Config: ' + JSON.stringify(imagePreprocessing, null, 2), 'info');
+            } else {
+                log('Bildvorverarbeitung deaktiviert', 'info');
+            }
+
+            return {
+                fps: fps,
+                qrbox: { width: qrboxSize, height: qrboxSize },
+                formatsToSupport: formatsToSupport,
+
+                // Language and CSS
+                lang: "de",
+                inlineCSS: false,
+
+                // Detection improvements
+                tryHarder: document.getElementById('config-tryharder').checked,
+                imagePreprocessing: imagePreprocessing,
+
+                // Camera features
+                videoResolution: document.getElementById('config-resolution').value,
+                autoZoom: document.getElementById('config-autozoom').checked,
+                autoZoomLevel: parseFloat(document.getElementById('config-zoomlevel').value) || 2.0,
+                autoTorch: document.getElementById('config-autotorch').checked,
+
+                // UI controls
+                showZoomSliderIfSupported: showControls,
+                showTorchButtonIfSupported: showControls,
+
+                // Camera only
+                supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
+            };
+        }
+
+        // Success callback
         function onScanSuccess(decodedText, decodedResult) {
-            console.log(`Code matched = ${decodedText}`, decodedResult);
+            scanCount++;
+            log(`✓ Scan #${scanCount}: ${decodedText}`, 'success');
 
-            // Update the AJAX response container
-            const container = document.getElementById("reader__ajax_response");
-            if (container) {
-                container.innerHTML = `<strong>Gescannt:</strong> ${decodedText}`;
-                container.className = "success";
+            // Update result display
+            const container = document.getElementById('reader__ajax_response');
+            container.innerHTML = `<strong>Gescannt:</strong> ${escapeHtml(decodedText)}`;
+            container.className = 'success';
+
+            // Show details
+            const details = document.getElementById('result-details');
+            details.style.display = 'block';
+            details.innerHTML = `
+                <strong>Format:</strong> ${decodedResult.result.format?.formatName || 'Unbekannt'}<br>
+                <strong>Zeit:</strong> ${new Date().toLocaleString()}<br>
+                <strong>Scan #:</strong> ${scanCount}
+            `;
+        }
+
+        // Error callback with debug capture
+        function onScanFailure(error) {
+            // Capture debug frame if debug mode is on
+            if (debugMode && scanner) {
+                try {
+                    // Get the canvas from the scanner (internal)
+                    const videoElement = document.querySelector('#reader video');
+                    if (videoElement && videoElement.videoWidth > 0) {
+                        // Draw current frame to debug canvas
+                        debugCanvas.width = videoElement.videoWidth;
+                        debugCanvas.height = videoElement.videoHeight;
+                        debugContext.drawImage(videoElement, 0, 0);
+
+                        // Update debug info
+                        document.getElementById('debug-info').innerHTML = `
+                            Frame: ${videoElement.videoWidth}x${videoElement.videoHeight}<br>
+                            Zeit: ${new Date().toLocaleTimeString()}<br>
+                            Status: Scannen...
+                        `;
+                    }
+                } catch (err) {
+                    console.error('Debug capture error:', err);
+                }
             }
         }
 
-        function onScanFailure(error) {
-            // Ignore scan failures (continuous scanning)
+        // Helper function to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
-        scanner.render(onScanSuccess, onScanFailure);
+        // Start scanner
+        function startScanner() {
+            if (scanner) {
+                log('Scanner läuft bereits', 'error');
+                return;
+            }
+
+            const config = getConfig();
+            log('Starte Scanner...', 'info');
+            log('Config: ' + JSON.stringify({
+                fps: config.fps,
+                tryHarder: config.tryHarder,
+                videoResolution: config.videoResolution,
+                imagePreprocessing: config.imagePreprocessing ? 'Custom' : 'Deaktiviert'
+            }), 'info');
+
+            scanner = new Html5QrcodeScanner("reader", config, /* verbose= */ true);
+            scanner.render(onScanSuccess, onScanFailure);
+
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-stop').disabled = false;
+            log('Scanner gestartet ✓', 'success');
+        }
+
+        // Stop scanner
+        function stopScanner() {
+            if (!scanner) {
+                log('Kein Scanner aktiv', 'error');
+                return;
+            }
+
+            scanner.clear();
+            scanner = null;
+
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-stop').disabled = true;
+            log('Scanner gestoppt', 'info');
+
+            // Reset result display
+            const container = document.getElementById('reader__ajax_response');
+            container.innerHTML = container.dataset.infotext;
+            container.className = '';
+            document.getElementById('result-details').style.display = 'none';
+        }
+
+        // Event listeners
+        document.getElementById('btn-start').addEventListener('click', startScanner);
+        document.getElementById('btn-stop').addEventListener('click', stopScanner);
+
+        // Initialize
+        initDebugCanvas();
+        log('Seite geladen. Wähle Preset oder passe Einstellungen an, dann klicke "Scanner starten".', 'info');
+        log('💡 Tipp: Aktiviere Debug-Modus für Live-Preview des verarbeiteten Bildes!', 'info');
     </script>
 </body>
 </html>

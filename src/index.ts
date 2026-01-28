@@ -27,7 +27,14 @@ export {
 } from "./core";
 export { Html5QrcodeScannerState } from "./state-manager";
 export { Html5QrcodeScanType } from "./core";
-export { 
+export {
     CameraCapabilities,
     CameraDevice
 } from "./camera/core";
+
+// Image preprocessing exports
+export {
+    ImagePreprocessingConfig,
+    ImagePreprocessor,
+    PREPROCESSING_PRESETS
+} from "./image-preprocessing";

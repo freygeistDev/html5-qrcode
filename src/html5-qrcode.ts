@@ -104,7 +104,7 @@ export interface Html5QrcodeConfigs {
 
 /**
  * Interface for full configuration of {@link Html5Qrcode}.
- * 
+ *
  * Notes: Ideally we don't need to have two interfaces for this purpose, but
  * since the public APIs before version 2.0.8 allowed passing a boolean verbose
  * flag to constructor we need to allow users to pass Html5QrcodeFullConfig or
@@ -116,6 +116,27 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
      * If true, all logs would be printed to console. False by default.
      */
     verbose: boolean | undefined;
+
+    /**
+     * If true, the decoder will try harder to find codes.
+     * Improves detection of difficult codes at the cost of performance.
+     * Default: false
+     */
+    tryHarder?: boolean | undefined;
+
+    /**
+     * Optional image preprocessor for improving detection of difficult codes.
+     * Applied to each frame before decoding.
+     * @internal
+     */
+    imagePreprocessor?: any | undefined;
+
+    /**
+     * Optional callback to receive the canvas used for decoding.
+     * Useful for debug previews of the actual input frame.
+     * @internal
+     */
+    debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
 }
 
 /**
@@ -285,6 +306,9 @@ export class Html5Qrcode {
     private qrRegion: QrcodeRegionBounds | null = null;
     private context: CanvasRenderingContext2D | null = null;
     private lastScanImageFile: string | null = null;
+    private imagePreprocessor: any | null = null;
+    private debugCallback:
+        ((canvas: HTMLCanvasElement) => void) | undefined;
     //#endregion
 
     private stateManagerProxy: StateManagerProxy;
@@ -332,7 +356,12 @@ export class Html5Qrcode {
             this.getSupportedFormats(configOrVerbosityFlag),
             this.getUseBarCodeDetectorIfSupported(configObject),
             this.verbose,
-            this.logger);
+            this.logger,
+            { tryHarder: configObject?.tryHarder ?? false });
+
+        // Set image preprocessor if provided
+        this.imagePreprocessor = configObject?.imagePreprocessor ?? null;
+        this.debugCallback = configObject?.debugCallback;
 
         this.foreverScanTimeout;
         this.shouldScan = true;
@@ -1143,21 +1172,75 @@ export class Html5Qrcode {
             return Promise.resolve(false);
         }
 
-        return this.qrcode.decodeAsync(this.canvasElement!)
-        .then((result) => {
-            qrCodeSuccessCallback(
-                result.text,
-                Html5QrcodeResultFactory.createFromQrcodeResult(
-                    result));
-            this.possiblyUpdateShaders(/* qrMatch= */ true);
-            return true;
-        }).catch((error) => {
-            this.possiblyUpdateShaders(/* qrMatch= */ false);
-            let errorMessage = Html5QrcodeStrings.codeParseError(error);
-            qrCodeErrorCallback(
-                errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
-            return false;
-        });
+        const canvasesToScan = this.getCanvasesForDecode();
+        return this.decodeWithCanvases(
+            canvasesToScan, qrCodeSuccessCallback, qrCodeErrorCallback);
+    }
+
+    /**
+     * Get the list of canvases to decode (preprocessed variants if enabled).
+     */
+    private getCanvasesForDecode(): HTMLCanvasElement[] {
+        if (this.imagePreprocessor && this.imagePreprocessor.isEnabled()) {
+            try {
+                const processed = this.imagePreprocessor.process(
+                    this.canvasElement!
+                );
+                if (processed && processed.length > 0) {
+                    return processed;
+                }
+            } catch (error) {
+                if (this.verbose) {
+                    this.logger.logError(
+                        `Image preprocessing failed: ${error}`);
+                }
+            }
+        }
+
+        return [this.canvasElement!];
+    }
+
+    /**
+     * Decode using multiple canvases (e.g., inverted variants) sequentially.
+     */
+    private async decodeWithCanvases(
+        canvases: HTMLCanvasElement[],
+        qrCodeSuccessCallback: QrcodeSuccessCallback,
+        qrCodeErrorCallback: QrcodeErrorCallback
+    ): Promise<boolean> {
+        let lastError: any = null;
+
+        for (const canvas of canvases) {
+            if (this.debugCallback) {
+                try {
+                    this.debugCallback(canvas);
+                } catch (error) {
+                    if (this.verbose) {
+                        this.logger.logError(
+                            `Debug callback failed: ${error}`);
+                    }
+                }
+            }
+
+            try {
+                const result = await this.qrcode.decodeAsync(canvas);
+                qrCodeSuccessCallback(
+                    result.text,
+                    Html5QrcodeResultFactory.createFromQrcodeResult(
+                        result));
+                this.possiblyUpdateShaders(/* qrMatch= */ true);
+                return true;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        this.possiblyUpdateShaders(/* qrMatch= */ false);
+        const errorMessage = Html5QrcodeStrings.codeParseError(
+            lastError ?? "No code detected");
+        qrCodeErrorCallback(
+            errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
+        return false;
     }
 
     /**

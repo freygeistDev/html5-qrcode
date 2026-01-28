@@ -83,6 +83,12 @@ import {
     setVisuallyDisabled
 } from "./css-config";
 
+import {
+    ImagePreprocessingConfig,
+    ImagePreprocessor,
+    PREPROCESSING_PRESETS
+} from "./image-preprocessing";
+
 /**
  * Different states of QR Code Scanner.
  */
@@ -168,6 +174,72 @@ export interface Html5QrcodeScannerConfig
      * Note: default value is `true` (inline CSS).
      */
     inlineCSS?: boolean | undefined;
+
+    /**
+     * If `true`, the decoder will try harder to find codes.
+     * Improves detection of difficult codes (small, low contrast, etc.)
+     * at the cost of slightly reduced performance.
+     *
+     * Note: default value is `false`.
+     */
+    tryHarder?: boolean | undefined;
+
+    /**
+     * Image preprocessing configuration for improving detection of
+     * difficult codes (small Data Matrix, codes behind foil, etc.).
+     *
+     * Can be:
+     * - A preset name: "none", "light", "standard", "aggressive", "dataMatrix"
+     * - A custom ImagePreprocessingConfig object
+     *
+     * Note: default is no preprocessing.
+     */
+    imagePreprocessing?:
+        | "none"
+        | "light"
+        | "standard"
+        | "aggressive"
+        | "dataMatrix"
+        | ImagePreprocessingConfig
+        | undefined;
+
+    /**
+     * Optional callback to receive the canvas used for decoding.
+     * Useful for debug previews of the actual input frame.
+     */
+    debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
+
+    /**
+     * If `true`, zoom will be automatically enabled when available.
+     * The zoom level is set via `autoZoomLevel` or defaults to 2x.
+     *
+     * Note: default value is `false`.
+     */
+    autoZoom?: boolean | undefined;
+
+    /**
+     * Zoom level for auto-zoom feature (1.0 - max zoom).
+     * Only used if `autoZoom` is `true`.
+     *
+     * Note: default value is `2.0`.
+     */
+    autoZoomLevel?: number | undefined;
+
+    /**
+     * If `true`, torch/flash will be automatically enabled when available.
+     * Useful for scanning in low-light conditions.
+     *
+     * Note: default value is `false`.
+     */
+    autoTorch?: boolean | undefined;
+
+    /**
+     * Video resolution preference for camera.
+     * Higher resolution improves detection of small codes.
+     *
+     * Note: default is "hd" (1280x720).
+     */
+    videoResolution?: "sd" | "hd" | "fullHd" | "4k" | undefined;
 }
 
 function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
@@ -182,13 +254,18 @@ function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
 }
 
 function toHtml5QrcodeFullConfig(
-    config: Html5QrcodeConfigs, verbose: boolean | undefined)
-    : Html5QrcodeFullConfig {
+    config: Html5QrcodeScannerConfig,
+    verbose: boolean | undefined,
+    imagePreprocessor: ImagePreprocessor | null
+): Html5QrcodeFullConfig {
     return {
         formatsToSupport: config.formatsToSupport,
         useBarCodeDetectorIfSupported: config.useBarCodeDetectorIfSupported,
         experimentalFeatures: config.experimentalFeatures,
-        verbose: verbose
+        verbose: verbose,
+        tryHarder: config.tryHarder,
+        imagePreprocessor: imagePreprocessor ?? undefined,
+        debugCallback: config.debugCallback
     };
 }
 
@@ -213,6 +290,7 @@ export class Html5QrcodeScanner {
     private persistedDataManager: PersistedDataManager;
     private scanTypeSelector: ScanTypeSelector;
     private logger: Logger;
+    private imagePreprocessor: ImagePreprocessor | null = null;
 
     // Initally null fields.
     private html5Qrcode: Html5Qrcode | undefined;
@@ -247,6 +325,9 @@ export class Html5QrcodeScanner {
         // Set CSS mode (inline or external)
         CssConfig.setInlineCss(config?.inlineCSS !== false);
 
+        // Initialize image preprocessor if configured
+        this.initializeImagePreprocessor(config);
+
         if (!document.getElementById(elementId)) {
             throw `HTML Element with id=${elementId} not found`;
         }
@@ -262,6 +343,91 @@ export class Html5QrcodeScanner {
         if (config!.rememberLastUsedCamera !== true) {
             this.persistedDataManager.reset();
         }
+    }
+
+    /**
+     * Initialize the image preprocessor based on config.
+     */
+    private initializeImagePreprocessor(
+        config: Html5QrcodeScannerConfig | undefined
+    ): void {
+        if (!config?.imagePreprocessing) {
+            this.imagePreprocessor = null;
+            return;
+        }
+
+        let preprocessingConfig: ImagePreprocessingConfig;
+
+        if (typeof config.imagePreprocessing === "string") {
+            // Use preset
+            switch (config.imagePreprocessing) {
+                case "none":
+                    preprocessingConfig = PREPROCESSING_PRESETS.NONE;
+                    break;
+                case "light":
+                    preprocessingConfig = PREPROCESSING_PRESETS.LIGHT;
+                    break;
+                case "standard":
+                    preprocessingConfig = PREPROCESSING_PRESETS.STANDARD;
+                    break;
+                case "aggressive":
+                    preprocessingConfig = PREPROCESSING_PRESETS.AGGRESSIVE;
+                    break;
+                case "dataMatrix":
+                    preprocessingConfig = PREPROCESSING_PRESETS.DATA_MATRIX;
+                    break;
+                default:
+                    preprocessingConfig = PREPROCESSING_PRESETS.NONE;
+            }
+        } else {
+            // Use custom config
+            preprocessingConfig = config.imagePreprocessing;
+        }
+
+        this.imagePreprocessor = new ImagePreprocessor(preprocessingConfig);
+
+        if (this.verbose && this.imagePreprocessor.isEnabled()) {
+            console.log(
+                "Image preprocessing enabled:",
+                this.imagePreprocessor.getConfig()
+            );
+        }
+    }
+
+    /**
+     * Get video constraints based on videoResolution config.
+     */
+    private getVideoConstraintsForResolution(): MediaTrackConstraints {
+        const resolution = this.config.videoResolution || "hd";
+        let width: number;
+        let height: number;
+
+        switch (resolution) {
+            case "sd":
+                width = 640;
+                height = 480;
+                break;
+            case "hd":
+                width = 1280;
+                height = 720;
+                break;
+            case "fullHd":
+                width = 1920;
+                height = 1080;
+                break;
+            case "4k":
+                width = 3840;
+                height = 2160;
+                break;
+            default:
+                width = 1280;
+                height = 720;
+        }
+
+        return {
+            width: { min: width, ideal: width },
+            height: { min: height, ideal: height }
+        };
     }
 
     /**
@@ -310,7 +476,8 @@ export class Html5QrcodeScanner {
         this.createBasicLayout(container!);
         this.html5Qrcode = new Html5Qrcode(
             this.getScanRegionId(),
-            toHtml5QrcodeFullConfig(this.config, this.verbose));
+            toHtml5QrcodeFullConfig(
+                this.config, this.verbose, this.imagePreprocessor));
     }
 
     //#region State related public APIs
@@ -897,6 +1064,16 @@ export class Html5QrcodeScanner {
                     const cameraCapabilities
                         = $this.html5Qrcode!.getRunningTrackCameraCapabilities();
 
+                    // Auto-zoom if enabled and supported
+                    if ($this.config.autoZoom === true) {
+                        $this.applyAutoZoom(cameraCapabilities);
+                    }
+
+                    // Auto-torch if enabled and supported
+                    if ($this.config.autoTorch === true) {
+                        $this.applyAutoTorch(cameraCapabilities);
+                    }
+
                     // Show torch button if needed.
                     if (this.config.showTorchButtonIfSupported === true) {
                         createAndShowTorchButtonIfSupported(cameraCapabilities);
@@ -1251,6 +1428,93 @@ export class Html5QrcodeScanner {
             ajaxResponseContainer.innerHTML = infotext;
             ajaxResponseContainer.removeAttribute("class");
         }
+    }
+
+    /**
+     * Apply auto-zoom if supported by the camera.
+     */
+    private applyAutoZoom(cameraCapabilities: CameraCapabilities): void {
+        const zoomCapability = cameraCapabilities.zoomFeature();
+        if (!zoomCapability.isSupported()) {
+            if (this.verbose) {
+                this.logger.log("Auto-zoom: zoom not supported by camera");
+            }
+            return;
+        }
+
+        const desiredZoom = this.config.autoZoomLevel ?? 2.0;
+        const minZoom = zoomCapability.min();
+        const maxZoom = zoomCapability.max();
+
+        // Clamp the zoom value to supported range
+        const actualZoom = clip(desiredZoom, minZoom, maxZoom);
+
+        zoomCapability.apply(actualZoom)
+            .then(() => {
+                if (this.verbose) {
+                    this.logger.log(`Auto-zoom: applied ${actualZoom}x zoom`);
+                }
+            })
+            .catch((error) => {
+                if (this.verbose) {
+                    this.logger.logError(
+                        `Auto-zoom: failed to apply zoom - ${error}`
+                    );
+                }
+            });
+    }
+
+    /**
+     * Apply auto-torch if supported by the camera.
+     */
+    private applyAutoTorch(cameraCapabilities: CameraCapabilities): void {
+        const torchCapability = cameraCapabilities.torchFeature();
+        if (!torchCapability.isSupported()) {
+            if (this.verbose) {
+                this.logger.log("Auto-torch: torch not supported by camera");
+            }
+            return;
+        }
+
+        torchCapability.apply(true)
+            .then(() => {
+                if (this.verbose) {
+                    this.logger.log("Auto-torch: torch enabled");
+                }
+            })
+            .catch((error) => {
+                if (this.verbose) {
+                    this.logger.logError(
+                        `Auto-torch: failed to enable torch - ${error}`
+                    );
+                }
+            });
+    }
+
+    /**
+     * Get the image preprocessor instance (for advanced usage).
+     */
+    public getImagePreprocessor(): ImagePreprocessor | null {
+        return this.imagePreprocessor;
+    }
+
+    /**
+     * Update the image preprocessing configuration dynamically.
+     */
+    public setImagePreprocessing(
+        config:
+            | "none"
+            | "light"
+            | "standard"
+            | "aggressive"
+            | "dataMatrix"
+            | ImagePreprocessingConfig
+    ): void {
+        // Re-use the initialization logic
+        this.initializeImagePreprocessor({
+            ...this.config,
+            imagePreprocessing: config
+        });
     }
     //#endregion
     //#endregion

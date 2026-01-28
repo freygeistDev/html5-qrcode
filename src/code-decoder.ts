@@ -16,19 +16,34 @@ import {
     RobustQrcodeDecoderAsync,
 } from "./core";
 
-import { ZXingHtml5QrcodeDecoder } from "./zxing-html5-qrcode-decoder";
+import {
+    ZXingHtml5QrcodeDecoder,
+    ZXingDecoderConfig
+} from "./zxing-html5-qrcode-decoder";
 import { BarcodeDetectorDelegate } from "./native-bar-code-detector";
 
 /**
+ * Configuration for the decoder shim.
+ */
+export interface Html5QrcodeShimConfig {
+    /**
+     * If true, decoder will try harder to find codes.
+     * Default: false
+     */
+    tryHarder?: boolean;
+}
+
+/**
  * Shim layer for {@interface QrcodeDecoder}.
- * 
+ *
  * Currently uses {@class ZXingHtml5QrcodeDecoder}, can be replace with another library.
  */
 export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
-    
+
     private verbose: boolean;
     private primaryDecoder: QrcodeDecoderAsync;
     private secondaryDecoder: QrcodeDecoderAsync | undefined;
+    private zxingDecoder: ZXingHtml5QrcodeDecoder | undefined;
 
     private readonly EXECUTIONS_TO_REPORT_PERFORMANCE = 100;
     private executions: number = 0;
@@ -39,8 +54,13 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         requestedFormats: Array<Html5QrcodeSupportedFormats>,
         useBarCodeDetectorIfSupported: boolean,
         verbose: boolean,
-        logger: Logger) {
+        logger: Logger,
+        shimConfig?: Html5QrcodeShimConfig) {
         this.verbose = verbose;
+
+        const zxingConfig: ZXingDecoderConfig = {
+            tryHarder: shimConfig?.tryHarder ?? false
+        };
 
         // Use BarcodeDetector library if enabled by config and is supported.
         if (useBarCodeDetectorIfSupported
@@ -50,11 +70,22 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
             // If 'BarcodeDetector' is supported, the library will alternate
             // between 'BarcodeDetector' and 'zxing-js' to compensate for
             // quality gaps between the two.
-            this.secondaryDecoder = new ZXingHtml5QrcodeDecoder(
-                requestedFormats, verbose, logger);
+            this.zxingDecoder = new ZXingHtml5QrcodeDecoder(
+                requestedFormats, verbose, logger, zxingConfig);
+            this.secondaryDecoder = this.zxingDecoder;
         } else {
-            this.primaryDecoder = new ZXingHtml5QrcodeDecoder(
-                requestedFormats, verbose, logger);
+            this.zxingDecoder = new ZXingHtml5QrcodeDecoder(
+                requestedFormats, verbose, logger, zxingConfig);
+            this.primaryDecoder = this.zxingDecoder;
+        }
+    }
+
+    /**
+     * Update the TRY_HARDER setting dynamically.
+     */
+    public setTryHarder(tryHarder: boolean): void {
+        if (this.zxingDecoder) {
+            this.zxingDecoder.setTryHarder(tryHarder);
         }
     }
 

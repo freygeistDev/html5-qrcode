@@ -22,6 +22,18 @@ import {
 } from "./core";
 
 /**
+ * Configuration options for ZXing decoder.
+ */
+export interface ZXingDecoderConfig {
+    /**
+     * If true, decoder will try harder to find codes.
+     * Improves detection of difficult codes at the cost of performance.
+     * Default: false
+     */
+    tryHarder?: boolean;
+}
+
+/**
  * ZXing based Code decoder.
  */
 export class ZXingHtml5QrcodeDecoder implements QrcodeDecoderAsync {
@@ -62,23 +74,37 @@ export class ZXingHtml5QrcodeDecoder implements QrcodeDecoderAsync {
     private hints: Map<any, any>;
     private verbose: boolean;
     private logger: Logger;
+    private tryHarder: boolean;
 
     public constructor(
         requestedFormats: Array<Html5QrcodeSupportedFormats>,
         verbose: boolean,
-        logger: Logger) {
+        logger: Logger,
+        decoderConfig?: ZXingDecoderConfig) {
         if (!ZXing) {
             throw "Use html5qrcode.min.js without edit, ZXing not found.";
         }
         this.verbose = verbose;
         this.logger = logger;
+        this.tryHarder = decoderConfig?.tryHarder ?? false;
 
         const formats = this.createZXingFormats(requestedFormats);
         const hints = new Map();
         hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-        // TODO(minhazav): Make this configurable by developers.
-        hints.set(ZXing.DecodeHintType.TRY_HARDER, false);
+        hints.set(ZXing.DecodeHintType.TRY_HARDER, this.tryHarder);
         this.hints = hints;
+
+        if (this.tryHarder && this.verbose) {
+            this.logger.log("ZXing decoder: TRY_HARDER mode enabled");
+        }
+    }
+
+    /**
+     * Update the TRY_HARDER hint dynamically.
+     */
+    public setTryHarder(tryHarder: boolean): void {
+        this.tryHarder = tryHarder;
+        this.hints.set(ZXing.DecodeHintType.TRY_HARDER, tryHarder);
     }
 
 
