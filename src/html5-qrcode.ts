@@ -63,6 +63,9 @@ class Constants extends Html5QrcodeConstants {
     static VERBOSE = false;
     static BORDER_SHADER_DEFAULT_COLOR = "#ffffff";
     static BORDER_SHADER_MATCH_COLOR = "rgb(90, 193, 56)";
+    static DEFAULT_AUTO_FOCUS_ON_START = false;
+    static DEFAULT_AUTO_FOCUS_MAX_RETRIES = 16;
+    static DEFAULT_AUTO_FOCUS_RETRY_INTERVAL_MS = 350;
     //#endregion
 }
 
@@ -140,6 +143,20 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
 }
 
 /**
+ * Autofocus mode values supported by camera track constraints.
+ */
+export type Html5QrcodeAutoFocusMode
+    = "continuous" | "single-shot" | "auto" | "manual";
+
+/**
+ * Normalized point for autofocus where `0 <= x <= 1` and `0 <= y <= 1`.
+ */
+export interface Html5QrcodeAutoFocusPoint {
+    x: number;
+    y: number;
+}
+
+/**
  * Configuration type for scanning QR code with camera.
  */
 export interface Html5QrcodeCameraScanConfig {
@@ -201,6 +218,58 @@ export interface Html5QrcodeCameraScanConfig {
      * aspectRatio, facingMode, frameRate, etc.
      */
     videoConstraints?: MediaTrackConstraints | undefined;
+
+    /**
+     * If `true`, autofocus constraints are applied automatically after camera
+     * start with retries while track capabilities are still warming up.
+     *
+     * Note: default value is `false`.
+     */
+    autoFocusOnStart?: boolean | undefined;
+
+    /**
+     * Preferred autofocus mode for `focusMode` track constraint.
+     *
+     * Note: if unset, the library automatically tries
+     * `continuous -> single-shot -> auto`.
+     */
+    autoFocusMode?: Html5QrcodeAutoFocusMode | undefined;
+
+    /**
+     * Optional normalized autofocus point (`pointsOfInterest`), where
+     * `0 <= x <= 1` and `0 <= y <= 1`.
+     *
+     * Note: if unset, scanner tries center of active scan region.
+     */
+    autoFocusPoint?: Html5QrcodeAutoFocusPoint | undefined;
+
+    /**
+     * Optional autofocus distance (`focusDistance`) value to apply.
+     * Use this only if your device benefits from a fixed distance.
+     */
+    autoFocusDistance?: number | undefined;
+
+    /**
+     * Optional normalized ratio (`0..1`) used to derive `focusDistance`
+     * from camera capability range.
+     *
+     * Note: ignored if `autoFocusDistance` is explicitly set.
+     */
+    autoFocusDistanceRatio?: number | undefined;
+
+    /**
+     * Maximum number of autofocus retries after start.
+     *
+     * Note: default value is `16`.
+     */
+    autoFocusMaxRetries?: number | undefined;
+
+    /**
+     * Delay between autofocus retries in milliseconds.
+     *
+     * Note: default value is `350`.
+     */
+    autoFocusRetryIntervalMs?: number | undefined;
 }
 
 /**
@@ -216,6 +285,13 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
     public readonly qrbox: number | QrDimensions | QrDimensionFunction | undefined;
     public readonly aspectRatio: number | undefined;
     public readonly videoConstraints: MediaTrackConstraints | undefined;
+    public readonly autoFocusOnStart: boolean;
+    public readonly autoFocusMode: Html5QrcodeAutoFocusMode | undefined;
+    public readonly autoFocusPoint: Html5QrcodeAutoFocusPoint | undefined;
+    public readonly autoFocusDistance: number | undefined;
+    public readonly autoFocusDistanceRatio: number | undefined;
+    public readonly autoFocusMaxRetries: number;
+    public readonly autoFocusRetryIntervalMs: number;
 
     private logger: Logger;
 
@@ -225,6 +301,10 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
         this.logger = logger;
 
         this.fps = Constants.SCAN_DEFAULT_FPS;
+        this.autoFocusOnStart = Constants.DEFAULT_AUTO_FOCUS_ON_START;
+        this.autoFocusMaxRetries = Constants.DEFAULT_AUTO_FOCUS_MAX_RETRIES;
+        this.autoFocusRetryIntervalMs
+            = Constants.DEFAULT_AUTO_FOCUS_RETRY_INTERVAL_MS;
         if (!config) {
             this.disableFlip = Constants.DEFAULT_DISABLE_FLIP;
         } else {
@@ -235,7 +315,110 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
             this.qrbox = config.qrbox;
             this.aspectRatio = config.aspectRatio;
             this.videoConstraints = config.videoConstraints;
+            this.autoFocusOnStart = config.autoFocusOnStart === true;
+            this.autoFocusMode
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusMode(
+                    config.autoFocusMode);
+            this.autoFocusPoint
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusPoint(
+                    config.autoFocusPoint);
+            this.autoFocusDistance
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusDistance(
+                    config.autoFocusDistance);
+            this.autoFocusDistanceRatio
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusDistanceRatio(
+                    config.autoFocusDistanceRatio);
+            this.autoFocusMaxRetries
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusMaxRetries(
+                    config.autoFocusMaxRetries);
+            this.autoFocusRetryIntervalMs
+                = InternalHtml5QrcodeConfig.normalizeAutoFocusRetryIntervalMs(
+                    config.autoFocusRetryIntervalMs);
         }
+    }
+
+    private static normalizeAutoFocusMode(
+        autoFocusMode: Html5QrcodeAutoFocusMode | undefined)
+            : Html5QrcodeAutoFocusMode | undefined {
+        if (!autoFocusMode) {
+            return undefined;
+        }
+
+        const allowedModes: Array<Html5QrcodeAutoFocusMode> = [
+            "continuous",
+            "single-shot",
+            "auto",
+            "manual"
+        ];
+        return allowedModes.indexOf(autoFocusMode) >= 0
+            ? autoFocusMode
+            : undefined;
+    }
+
+    private static normalizeAutoFocusPoint(
+        autoFocusPoint: Html5QrcodeAutoFocusPoint | undefined)
+            : Html5QrcodeAutoFocusPoint | undefined {
+        if (!autoFocusPoint) {
+            return undefined;
+        }
+
+        if (typeof autoFocusPoint.x !== "number"
+            || typeof autoFocusPoint.y !== "number") {
+            return undefined;
+        }
+
+        if (isNaN(autoFocusPoint.x) || isNaN(autoFocusPoint.y)) {
+            return undefined;
+        }
+
+        const clipNormalizedValue = (value: number) => {
+            return Math.max(0, Math.min(1, value));
+        };
+
+        return {
+            x: clipNormalizedValue(autoFocusPoint.x),
+            y: clipNormalizedValue(autoFocusPoint.y)
+        };
+    }
+
+    private static normalizeAutoFocusDistance(
+        autoFocusDistance: number | undefined): number | undefined {
+        if (typeof autoFocusDistance !== "number"
+            || isNaN(autoFocusDistance)) {
+            return undefined;
+        }
+
+        return autoFocusDistance;
+    }
+
+    private static normalizeAutoFocusDistanceRatio(
+        autoFocusDistanceRatio: number | undefined): number | undefined {
+        if (typeof autoFocusDistanceRatio !== "number"
+            || isNaN(autoFocusDistanceRatio)) {
+            return undefined;
+        }
+
+        return Math.max(0, Math.min(1, autoFocusDistanceRatio));
+    }
+
+    private static normalizeAutoFocusMaxRetries(
+        autoFocusMaxRetries: number | undefined): number {
+        if (typeof autoFocusMaxRetries !== "number"
+            || isNaN(autoFocusMaxRetries)) {
+            return Constants.DEFAULT_AUTO_FOCUS_MAX_RETRIES;
+        }
+
+        return Math.max(0, Math.floor(autoFocusMaxRetries));
+    }
+
+    private static normalizeAutoFocusRetryIntervalMs(
+        autoFocusRetryIntervalMs: number | undefined): number {
+        if (typeof autoFocusRetryIntervalMs !== "number"
+            || isNaN(autoFocusRetryIntervalMs)) {
+            return Constants.DEFAULT_AUTO_FOCUS_RETRY_INTERVAL_MS;
+        }
+
+        return Math.max(50, Math.floor(autoFocusRetryIntervalMs));
     }
 
     public isMediaStreamConstraintsValid(): boolean {
@@ -270,6 +453,13 @@ interface QrcodeRegionBounds {
     y: number,
     width: number,
     height: number
+}
+
+/** @hidden */
+interface AutoFocusAttemptResult {
+    ready: boolean;
+    supported: boolean;
+    appliedCount: number;
 }
 
 /**
@@ -309,6 +499,8 @@ export class Html5Qrcode {
     private imagePreprocessor: any | null = null;
     private debugCallback:
         ((canvas: HTMLCanvasElement) => void) | undefined;
+    private autoFocusRetryTimeout: any | null = null;
+    private autoFocusRunId: number = 0;
     //#endregion
 
     private stateManagerProxy: StateManagerProxy;
@@ -411,6 +603,7 @@ export class Html5Qrcode {
 
         const internalConfig = InternalHtml5QrcodeConfig.create(
             configuration, this.logger);
+        this.resetAutoFocusRuntimeState();
         this.clearElement();
 
         // Check if videoConstraints is passed and valid
@@ -476,6 +669,7 @@ export class Html5Qrcode {
                         this.element!, cameraRenderingOptions, renderingCallbacks)
                         .then((renderedCamera) => {
                             $this.renderedCamera = renderedCamera;
+                            $this.scheduleAutoFocusOnStart(internalConfig);
                             toScanningStateChangeTransaction.execute();
                             resolve(/* Void */ null);
                         })
@@ -581,6 +775,7 @@ export class Html5Qrcode {
             = this.stateManagerProxy.startTransition(
                 Html5QrcodeScannerState.NOT_STARTED);
 
+        this.resetAutoFocusRuntimeState();
         this.shouldScan = false;
         if (this.foreverScanTimeout) {
             clearTimeout(this.foreverScanTimeout);
@@ -1318,6 +1513,252 @@ export class Html5Qrcode {
             });
     }
 
+    private resetAutoFocusRuntimeState(): void {
+        this.autoFocusRunId += 1;
+        this.clearAutoFocusRetryTimer();
+    }
+
+    private clearAutoFocusRetryTimer(): void {
+        if (this.autoFocusRetryTimeout) {
+            clearTimeout(this.autoFocusRetryTimeout);
+            this.autoFocusRetryTimeout = null;
+        }
+    }
+
+    private scheduleAutoFocusOnStart(
+        internalConfig: InternalHtml5QrcodeConfig): void {
+        if (!internalConfig.autoFocusOnStart) {
+            return;
+        }
+
+        this.clearAutoFocusRetryTimer();
+        const runId = ++this.autoFocusRunId;
+        let attempts = 0;
+        const maxAttempts = internalConfig.autoFocusMaxRetries;
+        const retryIntervalMs = internalConfig.autoFocusRetryIntervalMs;
+
+        const attemptAutoFocus = async () => {
+            if (runId !== this.autoFocusRunId || !this.shouldScan) {
+                return;
+            }
+
+            const result = await this.tryApplyAutoFocus(internalConfig);
+            if (!result.ready) {
+                attempts += 1;
+                if (attempts <= maxAttempts) {
+                    this.autoFocusRetryTimeout = setTimeout(
+                        attemptAutoFocus, retryIntervalMs);
+                }
+                return;
+            }
+
+            if (result.appliedCount > 0) {
+                return;
+            }
+
+            if (!result.supported) {
+                return;
+            }
+
+            attempts += 1;
+            if (attempts <= maxAttempts) {
+                this.autoFocusRetryTimeout = setTimeout(
+                    attemptAutoFocus, retryIntervalMs);
+            }
+        };
+
+        this.autoFocusRetryTimeout = setTimeout(
+            attemptAutoFocus, retryIntervalMs);
+    }
+
+    private async tryApplyAutoFocus(
+        internalConfig: InternalHtml5QrcodeConfig): Promise<AutoFocusAttemptResult> {
+        if (!this.renderedCamera) {
+            return { ready: false, supported: false, appliedCount: 0 };
+        }
+
+        let capabilities: any;
+        try {
+            capabilities = this.getRunningTrackCapabilities() || {};
+        } catch (_) {
+            return { ready: false, supported: false, appliedCount: 0 };
+        }
+
+        if (!this.isAutoFocusCapabilityAvailable(capabilities)) {
+            return { ready: true, supported: false, appliedCount: 0 };
+        }
+
+        let appliedCount = 0;
+        const availableFocusModes = Array.isArray(capabilities.focusMode)
+            ? capabilities.focusMode
+            : [];
+        const preferredFocusModes = this.getPreferredAutoFocusModes(
+            internalConfig);
+        for (const preferredMode of preferredFocusModes) {
+            if (availableFocusModes.indexOf(preferredMode) < 0) {
+                continue;
+            }
+
+            if (await this.tryApplyAutoFocusConstraint({
+                focusMode: preferredMode
+            })) {
+                appliedCount += 1;
+                break;
+            }
+        }
+
+        const focusPoint = this.getAutoFocusPoint(internalConfig);
+        if (await this.tryApplyAutoFocusConstraint({
+            pointsOfInterest: [focusPoint]
+        })) {
+            appliedCount += 1;
+        }
+
+        // Only apply focusDistance when explicitly configured.
+        // Ratio-derived distance can lock focus on some integrated webcams
+        // and degrade native autofocus behavior.
+        const hasExplicitFocusDistance
+            = !isNullOrUndefined(internalConfig.autoFocusDistance);
+        if (hasExplicitFocusDistance) {
+            const clippedFocusDistance = this.getClippedAutoFocusDistance(
+                capabilities,
+                internalConfig.autoFocusDistance,
+                internalConfig.autoFocusDistanceRatio);
+            if (!isNullOrUndefined(clippedFocusDistance)) {
+                const isManualFocusModeSupported
+                    = availableFocusModes.indexOf("manual") >= 0;
+                const focusDistanceConstraint = isManualFocusModeSupported
+                    ? {
+                        focusMode: "manual",
+                        focusDistance: clippedFocusDistance
+                    }
+                    : { focusDistance: clippedFocusDistance };
+                if (await this.tryApplyAutoFocusConstraint(
+                    focusDistanceConstraint)) {
+                    appliedCount += 1;
+                }
+            }
+        }
+
+        return { ready: true, supported: true, appliedCount: appliedCount };
+    }
+
+    private async tryApplyAutoFocusConstraint(constraint: any): Promise<boolean> {
+        try {
+            await this.applyVideoConstraints({ advanced: [constraint] });
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    private getPreferredAutoFocusModes(
+        internalConfig: InternalHtml5QrcodeConfig): Array<Html5QrcodeAutoFocusMode> {
+        if (internalConfig.autoFocusMode) {
+            return [internalConfig.autoFocusMode];
+        }
+
+        return ["continuous", "single-shot", "auto"];
+    }
+
+    private getAutoFocusPoint(
+        internalConfig: InternalHtml5QrcodeConfig): Html5QrcodeAutoFocusPoint {
+        if (internalConfig.autoFocusPoint) {
+            return internalConfig.autoFocusPoint;
+        }
+
+        const scanRegionCenterPoint = this.getScanRegionCenterPoint();
+        if (scanRegionCenterPoint) {
+            return scanRegionCenterPoint;
+        }
+
+        return { x: 0.5, y: 0.5 };
+    }
+
+    private getScanRegionCenterPoint(): Html5QrcodeAutoFocusPoint | undefined {
+        if (!this.renderedCamera || !this.qrRegion) {
+            return undefined;
+        }
+
+        const videoElement = this.renderedCamera.getSurface();
+        if (!videoElement.clientWidth || !videoElement.clientHeight) {
+            return undefined;
+        }
+
+        const x = (this.qrRegion.x + (this.qrRegion.width / 2))
+            / videoElement.clientWidth;
+        const y = (this.qrRegion.y + (this.qrRegion.height / 2))
+            / videoElement.clientHeight;
+        return {
+            x: Math.max(0, Math.min(1, x)),
+            y: Math.max(0, Math.min(1, y))
+        };
+    }
+
+    private isAutoFocusCapabilityAvailable(capabilities: any): boolean {
+        return Array.isArray(capabilities.focusMode)
+            || !isNullOrUndefined(capabilities.focusDistance)
+            || !isNullOrUndefined(capabilities.pointsOfInterest);
+    }
+
+    private getClippedAutoFocusDistance(
+        capabilities: any,
+        autoFocusDistance: number | undefined,
+        autoFocusDistanceRatio: number | undefined)
+            : number | undefined {
+        const hasAbsoluteDistanceValue = typeof autoFocusDistance === "number"
+            && !isNaN(autoFocusDistance);
+        const hasDistanceRatioValue = typeof autoFocusDistanceRatio === "number"
+            && !isNaN(autoFocusDistanceRatio);
+        if (!hasAbsoluteDistanceValue && !hasDistanceRatioValue) {
+            return undefined;
+        }
+
+        const clipFocusDistance = (
+            focusDistanceValue: number, capability: any): number => {
+            const min = capability.min;
+            const max = capability.max;
+            if (min > max) {
+                return focusDistanceValue;
+            }
+
+            let clippedFocusDistance = Math.max(
+                min, Math.min(max, focusDistanceValue));
+            if (typeof capability.step === "number"
+                && capability.step > 0) {
+                clippedFocusDistance = Math.round(
+                    clippedFocusDistance / capability.step)
+                    * capability.step;
+            }
+            return clippedFocusDistance;
+        };
+
+        if (!capabilities.focusDistance) {
+            if (!hasAbsoluteDistanceValue) {
+                return undefined;
+            }
+            return autoFocusDistance;
+        }
+
+        const focusDistanceCapability = capabilities.focusDistance;
+        if (typeof focusDistanceCapability.min !== "number"
+            || typeof focusDistanceCapability.max !== "number") {
+            if (!hasAbsoluteDistanceValue) {
+                return undefined;
+            }
+            return autoFocusDistance;
+        }
+
+        if (hasAbsoluteDistanceValue) {
+            return clipFocusDistance(autoFocusDistance!, focusDistanceCapability);
+        }
+
+        const min = focusDistanceCapability.min;
+        const max = focusDistanceCapability.max;
+        const focusDistanceValue = min + ((max - min) * autoFocusDistanceRatio!);
+        return clipFocusDistance(focusDistanceValue, focusDistanceCapability);
+    }
+
     private createVideoConstraints(
         cameraIdOrConfig: string | MediaTrackConstraints)
             : MediaTrackConstraints | undefined {
@@ -1458,6 +1899,7 @@ export class Html5Qrcode {
     //#endregion
 
     private clearElement(): void {
+        this.clearAutoFocusRetryTimer();
         if (this.stateManagerProxy.isScanning()) {
             throw "Cannot clear while scan is ongoing, close it first.";
         }

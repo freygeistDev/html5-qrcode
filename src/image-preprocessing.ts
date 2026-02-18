@@ -77,6 +77,26 @@ export interface ImagePreprocessingConfig {
      */
     blurRadius?: number;
 
+    /**
+     * Try multiple preprocessing variants for tougher scans.
+     * Default: false
+     */
+    multiPass?: boolean;
+
+    /**
+     * Adds rotated decode variants (clockwise / counter-clockwise).
+     * Useful for Data Matrix codes that are hard to decode at certain angles.
+     * Default: false
+     */
+    rotationPasses?: boolean;
+
+    /**
+     * Rotation angles (in degrees) used when rotationPasses is enabled.
+     * Values are sanitized to `-45..45`, `0` is ignored.
+     * Default: [-8, 8, -14, 14]
+     */
+    rotationAngles?: number[];
+
 }
 
 /**
@@ -91,7 +111,10 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     sharpen: false,
     sharpenIntensity: 0.3,
     blur: false,
-    blurRadius: 1.5
+    blurRadius: 1.5,
+    multiPass: false,
+    rotationPasses: false,
+    rotationAngles: [-8, 8, -14, 14]
 };
 
 /**
@@ -106,7 +129,9 @@ export const PREPROCESSING_PRESETS = {
         grayscale: false,
         tryInverted: false,
         forceInvert: false,
-        sharpen: false
+        sharpen: false,
+        multiPass: false,
+        rotationPasses: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -118,7 +143,9 @@ export const PREPROCESSING_PRESETS = {
         grayscale: true,
         tryInverted: false,
         forceInvert: false,
-        sharpen: false
+        sharpen: false,
+        multiPass: false,
+        rotationPasses: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -133,7 +160,9 @@ export const PREPROCESSING_PRESETS = {
         sharpen: true,
         sharpenIntensity: 0.3,
         blur: false,
-        blurRadius: 1.5
+        blurRadius: 1.5,
+        multiPass: false,
+        rotationPasses: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -149,7 +178,9 @@ export const PREPROCESSING_PRESETS = {
         sharpen: true,
         sharpenIntensity: 0.5,
         blur: false,
-        blurRadius: 1.5
+        blurRadius: 1.5,
+        multiPass: false,
+        rotationPasses: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -164,7 +195,9 @@ export const PREPROCESSING_PRESETS = {
         sharpen: true,
         sharpenIntensity: 0.4,
         blur: false,
-        blurRadius: 1.5
+        blurRadius: 1.5,
+        multiPass: false,
+        rotationPasses: true
     } as ImagePreprocessingConfig
 };
 
@@ -204,7 +237,9 @@ export class ImagePreprocessor {
             this.config.sharpen ||
             this.config.tryInverted ||
             this.config.forceInvert ||
-            this.config.blur
+            this.config.blur ||
+            this.config.multiPass ||
+            this.config.rotationPasses
         );
     }
 
@@ -218,24 +253,135 @@ export class ImagePreprocessor {
     public process(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement[] {
         const results: HTMLCanvasElement[] = [];
 
-        // Always include the original (possibly with basic processing)
-        const processed = this.processCanvas(sourceCanvas, false);
-        results.push(processed);
+        const configsToTry = this.config.multiPass
+            ? this.buildMultiPassConfigs(this.config)
+            : [this.config];
 
-        // If tryInverted is enabled, also try inverted version
-        if (this.config.tryInverted) {
-            const inverted = this.processCanvas(sourceCanvas, true);
-            results.push(inverted);
-        }
+        configsToTry.forEach((cfg) => {
+            const variantsForConfig: HTMLCanvasElement[] = [];
+            const processed = this.processCanvasWithConfig(
+                sourceCanvas, cfg, false);
+            variantsForConfig.push(processed);
+
+            if (cfg.tryInverted) {
+                const inverted = this.processCanvasWithConfig(
+                    sourceCanvas, cfg, true);
+                variantsForConfig.push(inverted);
+            }
+
+            results.push(...variantsForConfig);
+
+            if (cfg.rotationPasses) {
+                const rotationAngles = this.getRotationAngles(cfg);
+                for (const variantCanvas of variantsForConfig) {
+                    for (const angle of rotationAngles) {
+                        results.push(this.rotateCanvas(variantCanvas, angle));
+                    }
+                }
+            }
+        });
 
         return results;
+    }
+
+    private buildMultiPassConfigs(
+        baseConfig: ImagePreprocessingConfig
+    ): ImagePreprocessingConfig[] {
+        const configs: ImagePreprocessingConfig[] = [];
+        configs.push({ ...baseConfig, multiPass: false });
+
+        if (!baseConfig.contrastEnhancement) {
+            configs.push({
+                ...baseConfig,
+                contrastEnhancement: true,
+                contrastFactor: baseConfig.contrastFactor || 1.5,
+                multiPass: false
+            });
+        }
+
+        if (!baseConfig.blur) {
+            configs.push({
+                ...baseConfig,
+                blur: true,
+                blurRadius: baseConfig.blurRadius || 0.4,
+                multiPass: false
+            });
+        }
+
+        if (!baseConfig.sharpen) {
+            configs.push({
+                ...baseConfig,
+                sharpen: true,
+                sharpenIntensity: baseConfig.sharpenIntensity || 0.3,
+                multiPass: false
+            });
+        }
+
+        if (!baseConfig.forceInvert && !baseConfig.tryInverted) {
+            configs.push({
+                ...baseConfig,
+                forceInvert: true,
+                multiPass: false
+            });
+        }
+
+        return configs.slice(0, 4);
+    }
+
+    private getRotationAngles(config: ImagePreprocessingConfig): number[] {
+        const defaultAngles = [-8, 8, -14, 14];
+        const input = Array.isArray(config.rotationAngles)
+            ? config.rotationAngles
+            : defaultAngles;
+
+        const uniqueAngles: number[] = [];
+        const seen = new Set<string>();
+        for (const rawValue of input) {
+            const candidate = Number(rawValue);
+            if (!Number.isFinite(candidate)) {
+                continue;
+            }
+            if (Math.abs(candidate) < 0.001) {
+                continue;
+            }
+            const clamped = this.clampFloat(candidate, -45, 45);
+            const key = clamped.toFixed(2);
+            if (seen.has(key)) {
+                continue;
+            }
+            seen.add(key);
+            uniqueAngles.push(clamped);
+            if (uniqueAngles.length >= 6) {
+                break;
+            }
+        }
+        return uniqueAngles;
+    }
+
+    private rotateCanvas(
+        sourceCanvas: HTMLCanvasElement,
+        angleDeg: number
+    ): HTMLCanvasElement {
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        const rotatedCanvas = document.createElement("canvas");
+        rotatedCanvas.width = width;
+        rotatedCanvas.height = height;
+
+        const ctx = rotatedCanvas.getContext("2d")!;
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate((angleDeg * Math.PI) / 180);
+        ctx.drawImage(sourceCanvas, -width / 2, -height / 2, width, height);
+
+        return rotatedCanvas;
     }
 
     /**
      * Process a single canvas with all enabled filters.
      */
-    private processCanvas(
+    private processCanvasWithConfig(
         sourceCanvas: HTMLCanvasElement,
+        config: ImagePreprocessingConfig,
         invert: boolean
     ): HTMLCanvasElement {
         const width = sourceCanvas.width;
@@ -262,37 +408,37 @@ export class ImagePreprocessor {
         const data = imageData.data;
 
         // Apply grayscale if enabled
-        if (this.config.grayscale) {
+        if (config.grayscale) {
             this.applyGrayscale(data);
         }
 
         // Apply contrast enhancement if enabled
-        if (this.config.contrastEnhancement) {
-            this.applyContrast(data, this.config.contrastFactor || 1.5);
+        if (config.contrastEnhancement) {
+            this.applyContrast(data, config.contrastFactor || 1.5);
         }
 
         // Apply blur if enabled (reduce noise before sharpening)
-        if (this.config.blur) {
+        if (config.blur) {
             this.applyBlur(
                 imageData,
                 width,
                 height,
-                this.config.blurRadius || 1.5
+                config.blurRadius || 1.5
             );
         }
 
         // Apply sharpening if enabled
-        if (this.config.sharpen) {
+        if (config.sharpen) {
             this.applySharpen(
                 imageData,
                 width,
                 height,
-                this.config.sharpenIntensity || 0.3
+                config.sharpenIntensity || 0.3
             );
         }
 
         // Apply inversion if requested
-        if (invert || this.config.forceInvert) {
+        if (invert || config.forceInvert) {
             this.applyInversion(data);
         }
 
@@ -334,7 +480,16 @@ export class ImagePreprocessor {
     ): void {
         const data = imageData.data;
         const result = new Uint8ClampedArray(data.length);
-        const r = Math.max(1, Math.round(radius));
+        const original = new Uint8ClampedArray(data);
+
+        // Allow subtle blur values like 0.4 without forcing a full radius-1 blur.
+        const normalizedRadius = Math.max(0, radius);
+        if (normalizedRadius === 0) {
+            return;
+        }
+
+        const r = normalizedRadius < 1 ? 1 : Math.max(1, Math.round(normalizedRadius));
+        const blurBlend = normalizedRadius < 1 ? normalizedRadius : 1;
         const kernelSize = (2 * r + 1);
         const kernelArea = kernelSize * kernelSize;
 
@@ -358,9 +513,18 @@ export class ImagePreprocessor {
                 }
 
                 const outIdx = (y * width + x) * 4;
-                result[outIdx] = sumR / kernelArea;
-                result[outIdx + 1] = sumG / kernelArea;
-                result[outIdx + 2] = sumB / kernelArea;
+                const blurredR = sumR / kernelArea;
+                const blurredG = sumG / kernelArea;
+                const blurredB = sumB / kernelArea;
+                result[outIdx] = this.clamp(
+                    original[outIdx] * (1 - blurBlend) + blurredR * blurBlend
+                );
+                result[outIdx + 1] = this.clamp(
+                    original[outIdx + 1] * (1 - blurBlend) + blurredG * blurBlend
+                );
+                result[outIdx + 2] = this.clamp(
+                    original[outIdx + 2] * (1 - blurBlend) + blurredB * blurBlend
+                );
                 result[outIdx + 3] = sumA / kernelArea;
             }
         }
@@ -372,12 +536,41 @@ export class ImagePreprocessor {
      * Apply contrast enhancement.
      */
     private applyContrast(data: Uint8ClampedArray, factor: number): void {
-        const intercept = 128 * (1 - factor);
+        const stats = this.computeLuminanceStats(data);
+        const lowContrastBoost = stats.stdDev < 35
+            ? this.clampFloat(35 / Math.max(8, stats.stdDev), 1, 1.35)
+            : 1;
+        const effectiveFactor = this.clampFloat(factor * lowContrastBoost, 1, 3);
+        const brightnessLift = stats.mean < 95 ? (95 - stats.mean) * 0.35 : 0;
+        const intercept = 128 * (1 - effectiveFactor) + brightnessLift;
+
         for (let i = 0; i < data.length; i += 4) {
-            data[i] = this.clamp(factor * data[i] + intercept);
-            data[i + 1] = this.clamp(factor * data[i + 1] + intercept);
-            data[i + 2] = this.clamp(factor * data[i + 2] + intercept);
+            data[i] = this.clamp(effectiveFactor * data[i] + intercept);
+            data[i + 1] = this.clamp(effectiveFactor * data[i + 1] + intercept);
+            data[i + 2] = this.clamp(effectiveFactor * data[i + 2] + intercept);
         }
+    }
+
+    private computeLuminanceStats(
+        data: Uint8ClampedArray
+    ): { mean: number; stdDev: number } {
+        const pixelCount = data.length / 4;
+        if (pixelCount === 0) {
+            return { mean: 128, stdDev: 0 };
+        }
+
+        let sum = 0;
+        let sumSquares = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const luminance =
+                0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            sum += luminance;
+            sumSquares += luminance * luminance;
+        }
+
+        const mean = sum / pixelCount;
+        const variance = Math.max(0, sumSquares / pixelCount - mean * mean);
+        return { mean, stdDev: Math.sqrt(variance) };
     }
 
     /**
@@ -436,6 +629,10 @@ export class ImagePreprocessor {
      */
     private clamp(value: number): number {
         return Math.max(0, Math.min(255, Math.round(value)));
+    }
+
+    private clampFloat(value: number, min: number, max: number): number {
+        return Math.max(min, Math.min(max, value));
     }
 
     /**

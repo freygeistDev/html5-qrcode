@@ -249,7 +249,14 @@ function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
         qrbox: config.qrbox,
         aspectRatio: config.aspectRatio,
         disableFlip: config.disableFlip,
-        videoConstraints: config.videoConstraints
+        videoConstraints: config.videoConstraints,
+        autoFocusOnStart: config.autoFocusOnStart,
+        autoFocusMode: config.autoFocusMode,
+        autoFocusPoint: config.autoFocusPoint,
+        autoFocusDistance: config.autoFocusDistance,
+        autoFocusDistanceRatio: config.autoFocusDistanceRatio,
+        autoFocusMaxRetries: config.autoFocusMaxRetries,
+        autoFocusRetryIntervalMs: config.autoFocusRetryIntervalMs
     };
 }
 
