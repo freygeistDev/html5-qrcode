@@ -83,20 +83,6 @@ export interface ImagePreprocessingConfig {
      */
     multiPass?: boolean;
 
-    /**
-     * Adds rotated decode variants (clockwise / counter-clockwise).
-     * Useful for Data Matrix codes that are hard to decode at certain angles.
-     * Default: false
-     */
-    rotationPasses?: boolean;
-
-    /**
-     * Rotation angles (in degrees) used when rotationPasses is enabled.
-     * Values are sanitized to `-45..45`, `0` is ignored.
-     * Default: [-8, 8, -14, 14]
-     */
-    rotationAngles?: number[];
-
 }
 
 /**
@@ -112,9 +98,7 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     sharpenIntensity: 0.3,
     blur: false,
     blurRadius: 1.5,
-    multiPass: false,
-    rotationPasses: false,
-    rotationAngles: [-8, 8, -14, 14]
+    multiPass: false
 };
 
 /**
@@ -130,8 +114,7 @@ export const PREPROCESSING_PRESETS = {
         tryInverted: false,
         forceInvert: false,
         sharpen: false,
-        multiPass: false,
-        rotationPasses: false
+        multiPass: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -144,8 +127,7 @@ export const PREPROCESSING_PRESETS = {
         tryInverted: false,
         forceInvert: false,
         sharpen: false,
-        multiPass: false,
-        rotationPasses: false
+        multiPass: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -161,8 +143,7 @@ export const PREPROCESSING_PRESETS = {
         sharpenIntensity: 0.3,
         blur: false,
         blurRadius: 1.5,
-        multiPass: false,
-        rotationPasses: false
+        multiPass: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -179,8 +160,7 @@ export const PREPROCESSING_PRESETS = {
         sharpenIntensity: 0.5,
         blur: false,
         blurRadius: 1.5,
-        multiPass: false,
-        rotationPasses: false
+        multiPass: false
     } as ImagePreprocessingConfig,
 
     /**
@@ -196,8 +176,7 @@ export const PREPROCESSING_PRESETS = {
         sharpenIntensity: 0.4,
         blur: false,
         blurRadius: 1.5,
-        multiPass: false,
-        rotationPasses: true
+        multiPass: false
     } as ImagePreprocessingConfig
 };
 
@@ -238,8 +217,7 @@ export class ImagePreprocessor {
             this.config.tryInverted ||
             this.config.forceInvert ||
             this.config.blur ||
-            this.config.multiPass ||
-            this.config.rotationPasses
+            this.config.multiPass
         );
     }
 
@@ -270,15 +248,6 @@ export class ImagePreprocessor {
             }
 
             results.push(...variantsForConfig);
-
-            if (cfg.rotationPasses) {
-                const rotationAngles = this.getRotationAngles(cfg);
-                for (const variantCanvas of variantsForConfig) {
-                    for (const angle of rotationAngles) {
-                        results.push(this.rotateCanvas(variantCanvas, angle));
-                    }
-                }
-            }
         });
 
         return results;
@@ -326,54 +295,6 @@ export class ImagePreprocessor {
         }
 
         return configs.slice(0, 4);
-    }
-
-    private getRotationAngles(config: ImagePreprocessingConfig): number[] {
-        const defaultAngles = [-8, 8, -14, 14];
-        const input = Array.isArray(config.rotationAngles)
-            ? config.rotationAngles
-            : defaultAngles;
-
-        const uniqueAngles: number[] = [];
-        const seen = new Set<string>();
-        for (const rawValue of input) {
-            const candidate = Number(rawValue);
-            if (!Number.isFinite(candidate)) {
-                continue;
-            }
-            if (Math.abs(candidate) < 0.001) {
-                continue;
-            }
-            const clamped = this.clampFloat(candidate, -45, 45);
-            const key = clamped.toFixed(2);
-            if (seen.has(key)) {
-                continue;
-            }
-            seen.add(key);
-            uniqueAngles.push(clamped);
-            if (uniqueAngles.length >= 6) {
-                break;
-            }
-        }
-        return uniqueAngles;
-    }
-
-    private rotateCanvas(
-        sourceCanvas: HTMLCanvasElement,
-        angleDeg: number
-    ): HTMLCanvasElement {
-        const width = sourceCanvas.width;
-        const height = sourceCanvas.height;
-        const rotatedCanvas = document.createElement("canvas");
-        rotatedCanvas.width = width;
-        rotatedCanvas.height = height;
-
-        const ctx = rotatedCanvas.getContext("2d")!;
-        ctx.translate(width / 2, height / 2);
-        ctx.rotate((angleDeg * Math.PI) / 180);
-        ctx.drawImage(sourceCanvas, -width / 2, -height / 2, width, height);
-
-        return rotatedCanvas;
     }
 
     /**
