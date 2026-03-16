@@ -57,6 +57,9 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
     private primaryDecoder: QrcodeDecoderAsync;
     private secondaryDecoder: QrcodeDecoderAsync | undefined;
     private zxingDecoder: ZXingHtml5QrcodeDecoder | undefined;
+    // When true, decodeAsync always uses primary (WASM) with secondary as error-fallback only.
+    // The default alternating strategy halves WASM scan rate and must not apply here.
+    private readonly useZXingWasmMode: boolean;
 
     private readonly EXECUTIONS_TO_REPORT_PERFORMANCE = 100;
     private executions: number = 0;
@@ -70,6 +73,7 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         logger: Logger,
         shimConfig?: Html5QrcodeShimConfig) {
         this.verbose = verbose;
+        this.useZXingWasmMode = shimConfig?.useZXingWasm ?? false;
 
         const zxingConfig: ZXingDecoderConfig = {
             tryHarder: shimConfig?.tryHarder ?? false
@@ -116,6 +120,13 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
     async decodeAsync(canvas: HTMLCanvasElement): Promise<QrcodeResult> {
         let startTime = performance.now();
         try {
+            if (this.useZXingWasmMode) {
+                // zxing-wasm mode: always use WASM primary decoder; ZXing JS secondary
+                // is error-fallback only (e.g. WASM load failure). The alternating
+                // strategy designed for BarcodeDetector+ZXing would halve WASM
+                // scan rate and is wrong here.
+                return await this.decodeRobustlyAsync(canvas);
+            }
             return await this.getDecoder().decodeAsync(canvas);
         } finally {
             this.possiblyLogPerformance(startTime);

@@ -177,6 +177,34 @@ export const PREPROCESSING_PRESETS = {
         blur: false,
         blurRadius: 1.5,
         multiPass: false
+    } as ImagePreprocessingConfig,
+
+    /**
+     * Optimized for DPM (Direct Part Marking) / embossed DataMatrix codes.
+     *
+     * Designed for use with zxing-wasm decoder on cigarette packaging foil:
+     * - Very subtle gray-level differences (emboss relief, not printed ink)
+     * - Metallic/reflective surface with uneven lighting
+     * - Code can appear light-on-dark OR dark-on-light depending on lighting angle
+     *
+     * Key differences from DATA_MATRIX:
+     * - Higher contrast (3.0) to amplify the subtle emboss relief
+     * - Gentle blur (0.5) to suppress metallic surface noise
+     * - Stronger sharpen (0.55) to restore module boundaries after blur
+     * - tryInverted: true — tries BOTH normal and inverted polarity each frame,
+     *   since embossed foil polarity varies with lighting angle
+     */
+    DPM: {
+        contrastEnhancement: true,
+        contrastFactor: 3.0,
+        grayscale: true,
+        tryInverted: true,
+        forceInvert: false,
+        sharpen: true,
+        sharpenIntensity: 0.55,
+        blur: true,
+        blurRadius: 0.5,
+        multiPass: false
     } as ImagePreprocessingConfig
 };
 
