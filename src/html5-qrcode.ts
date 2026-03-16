@@ -41,6 +41,7 @@ import {
 } from "./camera/core";
 import { CameraRetriever } from "./camera/retriever";
 import { ExperimentalFeaturesConfig } from "./experimental-features";
+import { configureZXingWasmPath } from "./zxing-wasm-decoder";
 import {
     StateManagerProxy,
     StateManagerFactory,
@@ -140,6 +141,27 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
      * @internal
      */
     debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
+
+    /**
+     * If true, use zxing-wasm (C++ zxing-cpp via WebAssembly) as the primary
+     * decoder instead of ZXing JS. Substantially better DataMatrix detection
+     * for DPM / embossed codes (e.g. cigarette packaging foil).
+     *
+     * Requires the zxing_reader.wasm file to be served. Configure its location
+     * via zxingWasmBasePath or Html5Qrcode.configureZXingWasmPath().
+     *
+     * Default: false
+     */
+    useZXingWasm?: boolean | undefined;
+
+    /**
+     * Base URL path from which zxing_reader.wasm is fetched when useZXingWasm
+     * is true. Example: "/assets/vendor/"
+     *
+     * If not set, the default from setZXingModuleOverrides applies (CDN or
+     * last value set via Html5Qrcode.configureZXingWasmPath()).
+     */
+    zxingWasmBasePath?: string | undefined;
 }
 
 /**
@@ -544,12 +566,21 @@ export class Html5Qrcode {
         }
         
         this.logger = new BaseLoggger(this.verbose);
+
+        // Configure WASM path if provided in constructor config.
+        if (configObject?.useZXingWasm && configObject?.zxingWasmBasePath) {
+            configureZXingWasmPath(configObject.zxingWasmBasePath);
+        }
+
         this.qrcode = new Html5QrcodeShim(
             this.getSupportedFormats(configOrVerbosityFlag),
             this.getUseBarCodeDetectorIfSupported(configObject),
             this.verbose,
             this.logger,
-            { tryHarder: configObject?.tryHarder ?? false });
+            {
+                tryHarder: configObject?.tryHarder ?? false,
+                useZXingWasm: configObject?.useZXingWasm ?? false,
+            });
 
         // Set image preprocessor if provided
         this.imagePreprocessor = configObject?.imagePreprocessor ?? null;
@@ -988,6 +1019,19 @@ export class Html5Qrcode {
      */
     public static getCameras(): Promise<Array<CameraDevice>> {
         return CameraRetriever.retrieve();
+    }
+
+    /**
+     * Configure the base URL path for the zxing_reader.wasm file used by the
+     * zxing-wasm decoder. Must be called before creating an instance with
+     * useZXingWasm: true if the path is not set via the constructor config.
+     *
+     * Example: Html5Qrcode.configureZXingWasmPath("/assets/vendor/");
+     *
+     * @param basePath  URL path prefix where zxing_reader.wasm is served from.
+     */
+    public static configureZXingWasmPath(basePath: string): void {
+        configureZXingWasmPath(basePath);
     }
 
     /**

@@ -4,6 +4,18 @@
         "module": "ES2015",
         "sourceMap": true,
         "moduleResolution": "Node",
+        "baseUrl": ".",
+        "paths": {
+            "@scanapp/html5-qrcode": [
+                "./dist"
+            ],
+            "@scanapp/html5-qrcode/*": [
+                "./dist/*"
+            ],
+            "@sec-ant/zxing-wasm/reader": [
+                "./node_modules/@sec-ant/zxing-wasm/dist/reader/index"
+            ]
+        },
         "declaration": true,
         "lib": ["DOM", "ES2017", "ES2018"],
 
@@ -22,13 +34,5 @@
     },
     "files": [
         "src/index.ts"
-    ],
-    "paths": {
-        "@scanapp/html5-qrcode": [
-            "./dist"
-        ],
-        "@scanapp/html5-qrcode/*": [
-            "./dist/*"
-        ]
-    }
+    ]
 }

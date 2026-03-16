@@ -14,13 +14,31 @@ module.exports = {
     // file resolutions
     resolve: {
         extensions: [ ".ts", ".js" ],
+        // Required to resolve package.json "exports" subpath fields
+        // (e.g. @sec-ant/zxing-wasm/reader) with webpack 5.
+        conditionNames: ["import", "module", "browser", "require", "default"],
+        alias: {
+            // Map subpath export to direct file path for TypeScript resolution.
+            "@sec-ant/zxing-wasm/reader": path.resolve(
+                __dirname,
+                "node_modules/@sec-ant/zxing-wasm/dist/reader/index.js"),
+        },
     },
     target: "web",
+    // Enable async WebAssembly support (required for zxing-wasm).
+    experiments: {
+        asyncWebAssembly: true,
+    },
     module: {
         rules: [
             {
                 test: /\.tsx?/,
-                use: "ts-loader",
+                // transpileOnly skips type-checking in the webpack bundle build;
+                // type correctness is still verified by the separate tsc steps.
+                use: {
+                    loader: "ts-loader",
+                    options: { transpileOnly: true },
+                },
                 exclude: /node_modules/,
             },
         ]

@@ -89,5 +89,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@sec-ant/zxing-wasm": "^2.2.0"
   }
 }

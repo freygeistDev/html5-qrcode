@@ -21,6 +21,7 @@ import {
     ZXingDecoderConfig
 } from "./zxing-html5-qrcode-decoder";
 import { BarcodeDetectorDelegate } from "./native-bar-code-detector";
+import { ZXingWasmDecoder } from "./zxing-wasm-decoder";
 
 /**
  * Configuration for the decoder shim.
@@ -31,6 +32,18 @@ export interface Html5QrcodeShimConfig {
      * Default: false
      */
     tryHarder?: boolean;
+
+    /**
+     * If true, use zxing-wasm (C++ zxing-cpp via WebAssembly) as the primary
+     * decoder. Substantially better DataMatrix detection for DPM / embossed
+     * codes compared to the ZXing JS implementation.
+     *
+     * Requires the zxing_reader.wasm file to be served from the path configured
+     * via configureZXingWasmPath() before the first scan.
+     *
+     * Default: false
+     */
+    useZXingWasm?: boolean;
 }
 
 /**
@@ -62,8 +75,19 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
             tryHarder: shimConfig?.tryHarder ?? false
         };
 
+        // zxing-wasm path: superior DataMatrix / DPM detection via C++ zxing-cpp.
+        // BarcodeDetector is intentionally not combined with zxing-wasm since
+        // BarcodeDetector does not support DataMatrix on iOS/Safari anyway.
+        if (shimConfig?.useZXingWasm) {
+            this.primaryDecoder = new ZXingWasmDecoder(
+                requestedFormats, verbose, logger, shimConfig?.tryHarder ?? true);
+            // Keep ZXing JS as a fallback in case the WASM fails to load.
+            this.zxingDecoder = new ZXingHtml5QrcodeDecoder(
+                requestedFormats, verbose, logger, zxingConfig);
+            this.secondaryDecoder = this.zxingDecoder;
+        }
         // Use BarcodeDetector library if enabled by config and is supported.
-        if (useBarCodeDetectorIfSupported
+        else if (useBarCodeDetectorIfSupported
                 && BarcodeDetectorDelegate.isSupported()) {
             this.primaryDecoder = new BarcodeDetectorDelegate(
                 requestedFormats, verbose, logger);
