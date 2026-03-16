@@ -100,10 +100,28 @@ export interface Html5QrcodeConfigs {
 
     /**
      * Config for experimental features.
-     * 
+     *
      * Everything is false by default.
      */
     experimentalFeatures?: ExperimentalFeaturesConfig | undefined;
+
+    /**
+     * If true, use zxing-wasm (C++ zxing-cpp via WebAssembly) as the primary
+     * decoder instead of ZXing JS. Substantially better DataMatrix detection
+     * for DPM / embossed codes (e.g. cigarette packaging foil).
+     *
+     * Requires zxing_reader.wasm to be served. Configure its location via
+     * zxingWasmBasePath or Html5Qrcode.configureZXingWasmPath().
+     *
+     * Default: false
+     */
+    useZXingWasm?: boolean | undefined;
+
+    /**
+     * Base URL path from which zxing_reader.wasm is fetched when useZXingWasm
+     * is true. Example: "/assets/vendor/"
+     */
+    zxingWasmBasePath?: string | undefined;
 }
 
 /**
@@ -141,27 +159,6 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
      * @internal
      */
     debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
-
-    /**
-     * If true, use zxing-wasm (C++ zxing-cpp via WebAssembly) as the primary
-     * decoder instead of ZXing JS. Substantially better DataMatrix detection
-     * for DPM / embossed codes (e.g. cigarette packaging foil).
-     *
-     * Requires the zxing_reader.wasm file to be served. Configure its location
-     * via zxingWasmBasePath or Html5Qrcode.configureZXingWasmPath().
-     *
-     * Default: false
-     */
-    useZXingWasm?: boolean | undefined;
-
-    /**
-     * Base URL path from which zxing_reader.wasm is fetched when useZXingWasm
-     * is true. Example: "/assets/vendor/"
-     *
-     * If not set, the default from setZXingModuleOverrides applies (CDN or
-     * last value set via Html5Qrcode.configureZXingWasmPath()).
-     */
-    zxingWasmBasePath?: string | undefined;
 }
 
 /**

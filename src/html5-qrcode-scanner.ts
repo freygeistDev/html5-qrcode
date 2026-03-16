@@ -271,6 +271,8 @@ function toHtml5QrcodeFullConfig(
         experimentalFeatures: config.experimentalFeatures,
         verbose: verbose,
         tryHarder: config.tryHarder,
+        useZXingWasm: config.useZXingWasm,
+        zxingWasmBasePath: config.zxingWasmBasePath,
         imagePreprocessor: imagePreprocessor ?? undefined,
         debugCallback: config.debugCallback
     };
