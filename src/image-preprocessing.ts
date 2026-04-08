@@ -85,6 +85,17 @@ export interface ImagePreprocessingConfig {
 
 }
 
+export interface ImagePreprocessingCandidateMeta {
+    variantLabel: string;
+    inverted: boolean;
+    preprocessingSnapshot: ImagePreprocessingConfig;
+}
+
+export interface ImagePreprocessingCandidate {
+    canvas: HTMLCanvasElement;
+    meta: ImagePreprocessingCandidateMeta;
+}
+
 /**
  * Default preprocessing configuration optimized for difficult codes.
  */
@@ -253,32 +264,92 @@ export class ImagePreprocessor {
      * Process a canvas and return processed canvas(es).
      * May return multiple canvases if tryInverted is enabled.
      *
-     * @param sourceCanvas The source canvas to process
-     * @returns Array of processed canvases to try for decoding
+     * Backward-compatible API (canvas list only). Use processWithMetadata()
+     * to get candidate metadata for debug galleries.
      */
     public process(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement[] {
-        const results: HTMLCanvasElement[] = [];
+        return this.processWithMetadata(sourceCanvas).map((candidate) => {
+            return candidate.canvas;
+        });
+    }
+
+    /**
+     * Process a canvas and return processed candidates with metadata.
+     */
+    public processWithMetadata(
+        sourceCanvas: HTMLCanvasElement
+    ): ImagePreprocessingCandidate[] {
+        const results: ImagePreprocessingCandidate[] = [];
 
         const configsToTry = this.config.multiPass
             ? this.buildMultiPassConfigs(this.config)
             : [this.config];
+        const passCount = configsToTry.length;
 
-        configsToTry.forEach((cfg) => {
-            const variantsForConfig: HTMLCanvasElement[] = [];
+        configsToTry.forEach((cfg, passIndex) => {
+            const variantsForConfig: ImagePreprocessingCandidate[] = [];
             const processed = this.processCanvasWithConfig(
                 sourceCanvas, cfg, false);
-            variantsForConfig.push(processed);
+            variantsForConfig.push({
+                canvas: processed,
+                meta: {
+                    variantLabel: this.buildVariantLabel(cfg, passIndex, passCount, false),
+                    inverted: !!cfg.forceInvert,
+                    preprocessingSnapshot: this.buildPreprocessingSnapshot(cfg)
+                }
+            });
 
             if (cfg.tryInverted) {
                 const inverted = this.processCanvasWithConfig(
                     sourceCanvas, cfg, true);
-                variantsForConfig.push(inverted);
+                variantsForConfig.push({
+                    canvas: inverted,
+                    meta: {
+                        variantLabel: this.buildVariantLabel(cfg, passIndex, passCount, true),
+                        inverted: true,
+                        preprocessingSnapshot: this.buildPreprocessingSnapshot(cfg)
+                    }
+                });
             }
 
             results.push(...variantsForConfig);
         });
 
         return results;
+    }
+
+    private buildVariantLabel(
+        config: ImagePreprocessingConfig,
+        passIndex: number,
+        passCount: number,
+        inverted: boolean
+    ): string {
+        const passLabel = passCount > 1 ? `mp${passIndex + 1}` : "mp1";
+        const modeLabel = inverted || !!config.forceInvert ? "inverted" : "normal";
+        return `${passLabel} ${modeLabel}`;
+    }
+
+    private buildPreprocessingSnapshot(
+        config: ImagePreprocessingConfig
+    ): ImagePreprocessingConfig {
+        return {
+            contrastEnhancement: !!config.contrastEnhancement,
+            contrastFactor: typeof config.contrastFactor === "number"
+                ? config.contrastFactor
+                : DEFAULT_PREPROCESSING_CONFIG.contrastFactor,
+            grayscale: !!config.grayscale,
+            tryInverted: !!config.tryInverted,
+            forceInvert: !!config.forceInvert,
+            sharpen: !!config.sharpen,
+            sharpenIntensity: typeof config.sharpenIntensity === "number"
+                ? config.sharpenIntensity
+                : DEFAULT_PREPROCESSING_CONFIG.sharpenIntensity,
+            blur: !!config.blur,
+            blurRadius: typeof config.blurRadius === "number"
+                ? config.blurRadius
+                : DEFAULT_PREPROCESSING_CONFIG.blurRadius,
+            multiPass: !!config.multiPass
+        };
     }
 
     private buildMultiPassConfigs(

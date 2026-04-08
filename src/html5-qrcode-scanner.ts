@@ -31,6 +31,8 @@ import {
     Html5QrcodeConfigs,
     Html5QrcodeCameraScanConfig,
     Html5QrcodeFullConfig,
+    Html5QrcodeDebugMeta,
+    Html5QrcodeDebugCandidateMode,
 } from "./html5-qrcode";
 
 import {
@@ -207,7 +209,15 @@ export interface Html5QrcodeScannerConfig
      * Optional callback to receive the canvas used for decoding.
      * Useful for debug previews of the actual input frame.
      */
-    debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
+    debugCallback?:
+        ((canvas: HTMLCanvasElement, meta?: Html5QrcodeDebugMeta) => void)
+        | undefined;
+
+    /**
+     * Controls which debug candidates are emitted.
+     * Default: "attempted".
+     */
+    debugCandidateMode?: Html5QrcodeDebugCandidateMode | undefined;
 
     /**
      * If `true`, zoom will be automatically enabled when available.
@@ -274,7 +284,8 @@ function toHtml5QrcodeFullConfig(
         useZXingWasm: config.useZXingWasm,
         zxingWasmBasePath: config.zxingWasmBasePath,
         imagePreprocessor: imagePreprocessor ?? undefined,
-        debugCallback: config.debugCallback
+        debugCallback: config.debugCallback,
+        debugCandidateMode: config.debugCandidateMode
     };
 }
 

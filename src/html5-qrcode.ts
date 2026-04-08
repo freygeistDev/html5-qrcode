@@ -48,6 +48,9 @@ import {
     StateManagerTransaction,
     Html5QrcodeScannerState
 } from "./state-manager";
+import {
+    ImagePreprocessingCandidate
+} from "./image-preprocessing";
 
 class Constants extends Html5QrcodeConstants {
     //#region static constants
@@ -158,7 +161,32 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
      * Useful for debug previews of the actual input frame.
      * @internal
      */
-    debugCallback?: ((canvas: HTMLCanvasElement) => void) | undefined;
+    debugCallback?:
+        ((canvas: HTMLCanvasElement, meta?: Html5QrcodeDebugMeta) => void)
+        | undefined;
+
+    /**
+     * Controls which decode candidates are emitted via debug callback.
+     * - "attempted": emit only candidates that were actually decoded (legacy behavior).
+     * - "all": emit every preprocessing candidate for each frame, plus attempted/success markers.
+     *
+     * Default: "attempted"
+     * @internal
+     */
+    debugCandidateMode?: Html5QrcodeDebugCandidateMode | undefined;
+}
+
+export type Html5QrcodeDebugCandidateMode = "attempted" | "all";
+
+export interface Html5QrcodeDebugMeta {
+    frameId: number;
+    candidateIndex: number;
+    candidateCount: number;
+    variantLabel: string;
+    inverted: boolean;
+    preprocessingSnapshot?: any;
+    attempted?: boolean;
+    successful?: boolean;
 }
 
 /**
@@ -481,6 +509,13 @@ interface AutoFocusAttemptResult {
     appliedCount: number;
 }
 
+interface DecodeCanvasCandidate {
+    canvas: HTMLCanvasElement;
+    variantLabel: string;
+    inverted: boolean;
+    preprocessingSnapshot?: any;
+}
+
 /**
  * Low level APIs for building web based QR and Barcode Scanner.
  * 
@@ -517,7 +552,10 @@ export class Html5Qrcode {
     private lastScanImageFile: string | null = null;
     private imagePreprocessor: any | null = null;
     private debugCallback:
-        ((canvas: HTMLCanvasElement) => void) | undefined;
+        ((canvas: HTMLCanvasElement, meta?: Html5QrcodeDebugMeta) => void)
+        | undefined;
+    private debugCandidateMode: Html5QrcodeDebugCandidateMode = "attempted";
+    private debugFrameId: number = 0;
     private autoFocusRetryTimeout: any | null = null;
     private autoFocusRunId: number = 0;
     //#endregion
@@ -582,10 +620,18 @@ export class Html5Qrcode {
         // Set image preprocessor if provided
         this.imagePreprocessor = configObject?.imagePreprocessor ?? null;
         this.debugCallback = configObject?.debugCallback;
+        this.debugCandidateMode = Html5Qrcode.normalizeDebugCandidateMode(
+            configObject?.debugCandidateMode);
 
         this.foreverScanTimeout;
         this.shouldScan = true;
         this.stateManagerProxy = StateManagerFactory.create();
+    }
+
+    private static normalizeDebugCandidateMode(
+        mode: Html5QrcodeDebugCandidateMode | undefined)
+            : Html5QrcodeDebugCandidateMode {
+        return mode === "all" ? "all" : "attempted";
     }
 
     //#region start()
@@ -1416,14 +1462,44 @@ export class Html5Qrcode {
     /**
      * Get the list of canvases to decode (preprocessed variants if enabled).
      */
-    private getCanvasesForDecode(): HTMLCanvasElement[] {
+    private getCanvasesForDecode(): DecodeCanvasCandidate[] {
         if (this.imagePreprocessor && this.imagePreprocessor.isEnabled()) {
             try {
+                if (typeof this.imagePreprocessor.processWithMetadata
+                    === "function") {
+                    const processedWithMeta:
+                        Array<ImagePreprocessingCandidate>
+                        = this.imagePreprocessor.processWithMetadata(
+                            this.canvasElement!);
+                    if (processedWithMeta && processedWithMeta.length > 0) {
+                        return processedWithMeta.map((candidate, index) => {
+                            const meta = candidate.meta || (<any>{});
+                            return {
+                                canvas: candidate.canvas,
+                                variantLabel:
+                                    typeof meta.variantLabel === "string"
+                                        && meta.variantLabel.trim() !== ""
+                                        ? meta.variantLabel
+                                        : `candidate ${index + 1}`,
+                                inverted: !!meta.inverted,
+                                preprocessingSnapshot: meta.preprocessingSnapshot
+                            };
+                        });
+                    }
+                }
+
                 const processed = this.imagePreprocessor.process(
-                    this.canvasElement!
-                );
+                    this.canvasElement!);
                 if (processed && processed.length > 0) {
-                    return processed;
+                    return processed.map(
+                        (canvas: HTMLCanvasElement, index: number) => {
+                            return {
+                                canvas: canvas,
+                                variantLabel: `candidate ${index + 1}`,
+                                inverted: false,
+                                preprocessingSnapshot: undefined
+                            };
+                        });
                 }
             } catch (error) {
                 if (this.verbose) {
@@ -1433,33 +1509,61 @@ export class Html5Qrcode {
             }
         }
 
-        return [this.canvasElement!];
+        return [{
+            canvas: this.canvasElement!,
+            variantLabel: "raw",
+            inverted: false,
+            preprocessingSnapshot: undefined
+        }];
     }
 
     /**
      * Decode using multiple canvases (e.g., inverted variants) sequentially.
      */
     private async decodeWithCanvases(
-        canvases: HTMLCanvasElement[],
+        candidates: DecodeCanvasCandidate[],
         qrCodeSuccessCallback: QrcodeSuccessCallback,
         qrCodeErrorCallback: QrcodeErrorCallback
     ): Promise<boolean> {
         let lastError: any = null;
+        const frameId = ++this.debugFrameId;
+        const candidateCount = candidates.length;
 
-        for (const canvas of canvases) {
-            if (this.debugCallback) {
-                try {
-                    this.debugCallback(canvas);
-                } catch (error) {
-                    if (this.verbose) {
-                        this.logger.logError(
-                            `Debug callback failed: ${error}`);
-                    }
-                }
-            }
+        if (this.debugCandidateMode === "all") {
+            candidates.forEach((candidate, index) => {
+                this.emitDebugCanvas(candidate.canvas, {
+                    frameId: frameId,
+                    candidateIndex: index + 1,
+                    candidateCount: candidateCount,
+                    variantLabel: candidate.variantLabel,
+                    inverted: candidate.inverted,
+                    preprocessingSnapshot: candidate.preprocessingSnapshot,
+                    attempted: false,
+                    successful: false
+                });
+            });
+        }
+
+        for (let index = 0; index < candidates.length; index++) {
+            const candidate = candidates[index];
+            const candidateMeta = {
+                frameId: frameId,
+                candidateIndex: index + 1,
+                candidateCount: candidateCount,
+                variantLabel: candidate.variantLabel,
+                inverted: candidate.inverted,
+                preprocessingSnapshot: candidate.preprocessingSnapshot,
+                attempted: true,
+                successful: false
+            };
+            this.emitDebugCanvas(candidate.canvas, candidateMeta);
 
             try {
-                const result = await this.qrcode.decodeAsync(canvas);
+                const result = await this.qrcode.decodeAsync(candidate.canvas);
+                this.emitDebugCanvas(candidate.canvas, {
+                    ...candidateMeta,
+                    successful: true
+                });
                 qrCodeSuccessCallback(
                     result.text,
                     Html5QrcodeResultFactory.createFromQrcodeResult(
@@ -1477,6 +1581,25 @@ export class Html5Qrcode {
         qrCodeErrorCallback(
             errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
         return false;
+    }
+
+    private emitDebugCanvas(
+        canvas: HTMLCanvasElement,
+        meta: Html5QrcodeDebugMeta
+    ): void {
+        if (!this.debugCallback) {
+            return;
+        }
+        if (this.debugCandidateMode === "attempted" && meta.attempted !== true) {
+            return;
+        }
+        try {
+            this.debugCallback(canvas, meta);
+        } catch (error) {
+            if (this.verbose) {
+                this.logger.logError(`Debug callback failed: ${error}`);
+            }
+        }
     }
 
     /**

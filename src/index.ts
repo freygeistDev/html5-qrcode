@@ -17,6 +17,10 @@ export {
     Html5QrcodeFullConfig,
     Html5QrcodeCameraScanConfig
 } from "./html5-qrcode";
+export type {
+    Html5QrcodeDebugMeta,
+    Html5QrcodeDebugCandidateMode
+} from "./html5-qrcode";
 export { Html5QrcodeScanner } from "./html5-qrcode-scanner";
 export { LanguageConfig, SupportedLanguage } from "./strings";
 export {
