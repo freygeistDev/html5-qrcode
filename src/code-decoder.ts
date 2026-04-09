@@ -139,14 +139,29 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         try {
             return await this.primaryDecoder.decodeAsync(canvas);
         } catch(error) {
-            if (this.secondaryDecoder) {
-                // Try fallback.
+            if (this.secondaryDecoder
+                && !this.isNoCodeFoundError(error)) {
+                // Try fallback only for runtime/decoder failures (e.g. WASM load),
+                // not for normal "no code found" outcomes.
                 return this.secondaryDecoder.decodeAsync(canvas);
             }
             throw error;
         } finally {
             this.possiblyLogPerformance(startTime);
         }
+    }
+
+    private isNoCodeFoundError(error: any): boolean {
+        const message = typeof error === "string"
+            ? error
+            : (error && typeof error.message === "string" ? error.message : "");
+        const normalized = message.trim().toLowerCase();
+        if (!normalized) {
+            return false;
+        }
+        return normalized.includes("no barcode found")
+            || normalized.includes("no code found")
+            || normalized.includes("no multiformat readers were able");
     }
 
     private getDecoder(): QrcodeDecoderAsync {

@@ -78,6 +78,67 @@ export interface ImagePreprocessingConfig {
     blurRadius?: number;
 
     /**
+     * Blend current frame with previous frame to reduce sensor noise.
+     * Useful for reflective foil/glare without strong blur.
+     * Default: false
+     */
+    temporalDenoise?: boolean;
+
+    /**
+     * Temporal denoise strength (0.05 - 0.95).
+     * Higher values smooth more but can increase lag.
+     * Default: 0.35
+     */
+    temporalDenoiseStrength?: number;
+
+    /**
+     * Adaptive local thresholding (local binarization).
+     * Helps when illumination is uneven (e.g. foil reflections).
+     * Default: false
+     */
+    adaptiveThreshold?: boolean;
+
+    /**
+     * Adaptive threshold neighborhood size (odd number, 7-41).
+     * Default: 15
+     */
+    adaptiveBlockSize?: number;
+
+    /**
+     * Adaptive threshold offset subtracted from local mean (-32 to 32).
+     * Higher positive values create darker binarization.
+     * Default: 4
+     */
+    adaptiveOffset?: number;
+
+    /**
+     * Morphological closing (dilate->erode) to close small gaps in modules.
+     * Most effective on binarized images.
+     * Default: false
+     */
+    morphClose?: boolean;
+
+    /**
+     * Number of morph-close iterations (1-3).
+     * Default: 1
+     */
+    morphCloseIterations?: number;
+
+    /**
+     * Enable decoder-side upscaling of the processed region.
+     * Useful for very small codes when optical zoom is not available.
+     * Default: false
+     */
+    upscale?: boolean;
+
+    /**
+     * Upscale factor for decoder input region.
+     * Range: 1.0 - 4.0.
+     * Default: 2.0
+     */
+    upscaleFactor?: number;
+
+    /**
      * Try multiple preprocessing variants for tougher scans.
      * Default: false
      */
@@ -167,6 +228,15 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     sharpenIntensity: 0.3,
     blur: false,
     blurRadius: 1.5,
+    temporalDenoise: false,
+    temporalDenoiseStrength: 0.35,
+    adaptiveThreshold: false,
+    adaptiveBlockSize: 15,
+    adaptiveOffset: 4,
+    morphClose: false,
+    morphCloseIterations: 1,
+    upscale: false,
+    upscaleFactor: 2.0,
     multiPass: false,
     rotationPasses: false,
     rotationAngles: [],
@@ -183,6 +253,20 @@ const MIN_PREPROCESSING_PASSES = 1;
 const MAX_PREPROCESSING_PASSES = 256;
 const MIN_COMBINATION_PASS_SIZE = 2;
 const MAX_COMBINATION_PASS_SIZE = 5;
+const MIN_UPSCALE_FACTOR = 1.0;
+const MAX_UPSCALE_FACTOR = 4.0;
+const MIN_TEMPORAL_DENOISE_STRENGTH = 0.05;
+const MAX_TEMPORAL_DENOISE_STRENGTH = 0.95;
+const MIN_ADAPTIVE_BLOCK_SIZE = 7;
+const MAX_ADAPTIVE_BLOCK_SIZE = 41;
+const MIN_ADAPTIVE_OFFSET = -32;
+const MAX_ADAPTIVE_OFFSET = 32;
+const MIN_MORPH_CLOSE_ITERATIONS = 1;
+const MAX_MORPH_CLOSE_ITERATIONS = 3;
+const MAX_TEMPORAL_CACHE_ENTRIES = 512;
+const ADAPTIVE_SAUVOLA_K = 0.2;
+const ADAPTIVE_SAUVOLA_R = 128;
+const ADAPTIVE_BINARY_BLEND = 0.72;
 
 /**
  * Preset configurations for common use cases.
@@ -298,6 +382,7 @@ export class ImagePreprocessor {
     private config: ImagePreprocessingConfig;
     private tempCanvas: HTMLCanvasElement | null = null;
     private tempContext: CanvasRenderingContext2D | null = null;
+    private temporalDenoiseCache: Map<string, Uint8ClampedArray> = new Map();
 
     constructor(config?: ImagePreprocessingConfig) {
         this.config = this.normalizeConfig(config);
@@ -308,6 +393,7 @@ export class ImagePreprocessor {
      */
     public setConfig(config: ImagePreprocessingConfig): void {
         this.config = this.normalizeConfig(config);
+        this.resetTemporalDenoiseCache();
     }
 
     /**
@@ -328,6 +414,10 @@ export class ImagePreprocessor {
             this.config.tryInverted ||
             this.config.forceInvert ||
             this.config.blur ||
+            this.config.temporalDenoise ||
+            this.config.adaptiveThreshold ||
+            this.config.morphClose ||
+            this.config.upscale ||
             this.config.multiPass ||
             this.config.rotationPasses
         );
@@ -502,6 +592,25 @@ export class ImagePreprocessor {
             blurRadius: typeof config.blurRadius === "number"
                 ? config.blurRadius
                 : DEFAULT_PREPROCESSING_CONFIG.blurRadius,
+            temporalDenoise: !!config.temporalDenoise,
+            temporalDenoiseStrength: typeof config.temporalDenoiseStrength === "number"
+                ? this.normalizeTemporalDenoiseStrength(config.temporalDenoiseStrength)
+                : DEFAULT_PREPROCESSING_CONFIG.temporalDenoiseStrength,
+            adaptiveThreshold: !!config.adaptiveThreshold,
+            adaptiveBlockSize: typeof config.adaptiveBlockSize === "number"
+                ? this.normalizeAdaptiveBlockSize(config.adaptiveBlockSize)
+                : DEFAULT_PREPROCESSING_CONFIG.adaptiveBlockSize,
+            adaptiveOffset: typeof config.adaptiveOffset === "number"
+                ? this.normalizeAdaptiveOffset(config.adaptiveOffset)
+                : DEFAULT_PREPROCESSING_CONFIG.adaptiveOffset,
+            morphClose: !!config.morphClose,
+            morphCloseIterations: typeof config.morphCloseIterations === "number"
+                ? this.normalizeMorphCloseIterations(config.morphCloseIterations)
+                : DEFAULT_PREPROCESSING_CONFIG.morphCloseIterations,
+            upscale: !!config.upscale,
+            upscaleFactor: typeof config.upscaleFactor === "number"
+                ? this.normalizeUpscaleFactor(config.upscaleFactor)
+                : DEFAULT_PREPROCESSING_CONFIG.upscaleFactor,
             multiPass: !!config.multiPass,
             rotationPasses: !!config.rotationPasses,
             rotationAngles: this.normalizeRotationAngles(config.rotationAngles),
@@ -644,6 +753,21 @@ export class ImagePreprocessor {
         };
         merged.rotationPasses = !!merged.rotationPasses;
         merged.rotationAngles = this.normalizeRotationAngles(merged.rotationAngles);
+        merged.temporalDenoise = !!merged.temporalDenoise;
+        merged.temporalDenoiseStrength = this.normalizeTemporalDenoiseStrength(
+            merged.temporalDenoiseStrength
+        );
+        merged.adaptiveThreshold = !!merged.adaptiveThreshold;
+        merged.adaptiveBlockSize = this.normalizeAdaptiveBlockSize(
+            merged.adaptiveBlockSize
+        );
+        merged.adaptiveOffset = this.normalizeAdaptiveOffset(merged.adaptiveOffset);
+        merged.morphClose = !!merged.morphClose;
+        merged.morphCloseIterations = this.normalizeMorphCloseIterations(
+            merged.morphCloseIterations
+        );
+        merged.upscale = !!merged.upscale;
+        merged.upscaleFactor = this.normalizeUpscaleFactor(merged.upscaleFactor);
         merged.orthogonalPasses = !!merged.orthogonalPasses;
         merged.combinationPasses = !!merged.combinationPasses;
         merged.combinationMaxSize = this.normalizeCombinationMaxSize(
@@ -672,6 +796,66 @@ export class ImagePreprocessor {
             MIN_COMBINATION_PASS_SIZE,
             Math.min(MAX_COMBINATION_PASS_SIZE, value)
         );
+    }
+
+    private normalizeUpscaleFactor(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.upscaleFactor || 2.0;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? parsed : fallback;
+        return this.clampFloat(value, MIN_UPSCALE_FACTOR, MAX_UPSCALE_FACTOR);
+    }
+
+    private normalizeTemporalDenoiseStrength(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.temporalDenoiseStrength || 0.35;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? parsed : fallback;
+        return this.clampFloat(
+            value,
+            MIN_TEMPORAL_DENOISE_STRENGTH,
+            MAX_TEMPORAL_DENOISE_STRENGTH
+        );
+    }
+
+    private normalizeAdaptiveBlockSize(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.adaptiveBlockSize || 15;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return this.normalizeOddInteger(
+            value,
+            MIN_ADAPTIVE_BLOCK_SIZE,
+            MAX_ADAPTIVE_BLOCK_SIZE
+        );
+    }
+
+    private normalizeAdaptiveOffset(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.adaptiveOffset || 4;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? parsed : fallback;
+        return this.clampFloat(value, MIN_ADAPTIVE_OFFSET, MAX_ADAPTIVE_OFFSET);
+    }
+
+    private normalizeMorphCloseIterations(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.morphCloseIterations || 1;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return Math.max(
+            MIN_MORPH_CLOSE_ITERATIONS,
+            Math.min(MAX_MORPH_CLOSE_ITERATIONS, value)
+        );
+    }
+
+    private normalizeOddInteger(value: number, min: number, max: number): number {
+        let normalized = Math.max(min, Math.min(max, Math.floor(value)));
+        if (normalized % 2 === 0) {
+            normalized += 1;
+        }
+        if (normalized > max) {
+            normalized = max % 2 === 1 ? max : max - 1;
+        }
+        if (normalized < min) {
+            normalized = min % 2 === 1 ? min : min + 1;
+        }
+        return normalized;
     }
 
     private buildMultiPassConfigs(
@@ -733,6 +917,10 @@ export class ImagePreprocessor {
             forceInvert: false,
             blur: false,
             sharpen: false,
+            temporalDenoise: false,
+            adaptiveThreshold: false,
+            morphClose: false,
+            upscale: false,
             multiPass: false
         };
     }
@@ -768,12 +956,49 @@ export class ImagePreprocessor {
                 }
             });
         }
+        if (baseConfig.temporalDenoise) {
+            modules.push({
+                key: "temporal",
+                apply: (target) => {
+                    target.temporalDenoise = true;
+                    target.temporalDenoiseStrength = baseConfig.temporalDenoiseStrength;
+                }
+            });
+        }
+        if (baseConfig.adaptiveThreshold) {
+            modules.push({
+                key: "adaptive",
+                apply: (target) => {
+                    target.adaptiveThreshold = true;
+                    target.adaptiveBlockSize = baseConfig.adaptiveBlockSize;
+                    target.adaptiveOffset = baseConfig.adaptiveOffset;
+                }
+            });
+        }
+        if (baseConfig.morphClose) {
+            modules.push({
+                key: "morph",
+                apply: (target) => {
+                    target.morphClose = true;
+                    target.morphCloseIterations = baseConfig.morphCloseIterations;
+                }
+            });
+        }
         if (baseConfig.sharpen) {
             modules.push({
                 key: "sharpen",
                 apply: (target) => {
                     target.sharpen = true;
                     target.sharpenIntensity = baseConfig.sharpenIntensity;
+                }
+            });
+        }
+        if (baseConfig.upscale) {
+            modules.push({
+                key: "upscale",
+                apply: (target) => {
+                    target.upscale = true;
+                    target.upscaleFactor = baseConfig.upscaleFactor;
                 }
             });
         }
@@ -994,10 +1219,20 @@ export class ImagePreprocessor {
         // Get image data for pixel manipulation
         const imageData = this.tempContext.getImageData(0, 0, width, height);
         const data = imageData.data;
+        const temporalCacheKey = this.buildTemporalCacheKey(config, width, height, invert);
 
         // Apply grayscale if enabled
         if (config.grayscale) {
             this.applyGrayscale(data);
+        }
+
+        // Blend with previous frame to suppress sensor noise/flicker.
+        if (config.temporalDenoise) {
+            this.applyTemporalDenoise(
+                data,
+                temporalCacheKey,
+                this.normalizeTemporalDenoiseStrength(config.temporalDenoiseStrength)
+            );
         }
 
         // Apply contrast enhancement if enabled
@@ -1025,6 +1260,27 @@ export class ImagePreprocessor {
             );
         }
 
+        // Local binarization for uneven illumination on reflective surfaces.
+        if (config.adaptiveThreshold) {
+            this.applyAdaptiveThreshold(
+                imageData,
+                width,
+                height,
+                this.normalizeAdaptiveBlockSize(config.adaptiveBlockSize),
+                this.normalizeAdaptiveOffset(config.adaptiveOffset)
+            );
+        }
+
+        // Close tiny gaps in modules after binarization.
+        if (config.morphClose) {
+            this.applyMorphClose(
+                imageData,
+                width,
+                height,
+                this.normalizeMorphCloseIterations(config.morphCloseIterations)
+            );
+        }
+
         // Apply inversion if requested
         if (invert || config.forceInvert) {
             this.applyInversion(data);
@@ -1040,7 +1296,75 @@ export class ImagePreprocessor {
         const resultContext = resultCanvas.getContext("2d")!;
         resultContext.drawImage(this.tempCanvas, 0, 0);
 
+        if (config.upscale) {
+            const factor = this.normalizeUpscaleFactor(config.upscaleFactor);
+            if (factor > 1.001) {
+                return this.createUpscaledCanvas(resultCanvas, factor);
+            }
+        }
+
         return resultCanvas;
+    }
+
+    private buildTemporalCacheKey(
+        config: ImagePreprocessingConfig,
+        width: number,
+        height: number,
+        invert: boolean
+    ): string {
+        return `${width}x${height}|${invert ? "inv" : "norm"}|${this.getConfigSnapshotKey(config)}`;
+    }
+
+    private applyTemporalDenoise(
+        data: Uint8ClampedArray,
+        cacheKey: string,
+        strength: number
+    ): void {
+        const normalizedStrength = this.normalizeTemporalDenoiseStrength(strength);
+        const previous = this.temporalDenoiseCache.get(cacheKey);
+        if (previous && previous.length === data.length) {
+            const currentWeight = 1 - normalizedStrength;
+            for (let i = 0; i < data.length; i += 1) {
+                data[i] = this.clamp(
+                    data[i] * currentWeight + previous[i] * normalizedStrength
+                );
+            }
+        }
+
+        this.temporalDenoiseCache.delete(cacheKey);
+        this.temporalDenoiseCache.set(cacheKey, new Uint8ClampedArray(data));
+        while (this.temporalDenoiseCache.size > MAX_TEMPORAL_CACHE_ENTRIES) {
+            const oldestKey = this.temporalDenoiseCache.keys().next().value;
+            if (oldestKey === undefined) {
+                break;
+            }
+            this.temporalDenoiseCache.delete(oldestKey);
+        }
+    }
+
+    private createUpscaledCanvas(
+        sourceCanvas: HTMLCanvasElement,
+        factor: number
+    ): HTMLCanvasElement {
+        const targetWidth = Math.max(1, Math.round(sourceCanvas.width * factor));
+        const targetHeight = Math.max(1, Math.round(sourceCanvas.height * factor));
+        const upscaledCanvas = document.createElement("canvas");
+        upscaledCanvas.width = targetWidth;
+        upscaledCanvas.height = targetHeight;
+        const upscaledContext = upscaledCanvas.getContext("2d")!;
+        upscaledContext.imageSmoothingEnabled = false;
+        upscaledContext.drawImage(
+            sourceCanvas,
+            0,
+            0,
+            sourceCanvas.width,
+            sourceCanvas.height,
+            0,
+            0,
+            targetWidth,
+            targetHeight
+        );
+        return upscaledCanvas;
     }
 
     /**
@@ -1118,6 +1442,137 @@ export class ImagePreprocessor {
         }
 
         data.set(result);
+    }
+
+    private applyAdaptiveThreshold(
+        imageData: ImageData,
+        width: number,
+        height: number,
+        blockSize: number,
+        offset: number
+    ): void {
+        const data = imageData.data;
+        const pixelCount = width * height;
+        if (pixelCount === 0) {
+            return;
+        }
+
+        const radius = Math.floor(this.normalizeAdaptiveBlockSize(blockSize) / 2);
+        const normalizedOffset = this.normalizeAdaptiveOffset(offset);
+        const luminance = new Float32Array(pixelCount);
+
+        for (let i = 0, pixel = 0; i < data.length; i += 4, pixel += 1) {
+            luminance[pixel] = data[i] === data[i + 1] && data[i] === data[i + 2]
+                ? data[i]
+                : (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        }
+
+        const stride = width + 1;
+        const integral = new Float64Array((height + 1) * stride);
+        const integralSq = new Float64Array((height + 1) * stride);
+        for (let y = 1; y <= height; y += 1) {
+            let rowSum = 0;
+            let rowSumSq = 0;
+            const sourceOffset = (y - 1) * width;
+            const integralOffset = y * stride;
+            const prevIntegralOffset = (y - 1) * stride;
+            for (let x = 1; x <= width; x += 1) {
+                const lum = luminance[sourceOffset + (x - 1)];
+                rowSum += lum;
+                rowSumSq += lum * lum;
+                integral[integralOffset + x]
+                    = integral[prevIntegralOffset + x] + rowSum;
+                integralSq[integralOffset + x]
+                    = integralSq[prevIntegralOffset + x] + rowSumSq;
+            }
+        }
+
+        for (let y = 0; y < height; y += 1) {
+            const y0 = Math.max(0, y - radius);
+            const y1 = Math.min(height - 1, y + radius);
+            for (let x = 0; x < width; x += 1) {
+                const x0 = Math.max(0, x - radius);
+                const x1 = Math.min(width - 1, x + radius);
+                const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+                const sum
+                    = integral[(y1 + 1) * stride + (x1 + 1)]
+                    - integral[y0 * stride + (x1 + 1)]
+                    - integral[(y1 + 1) * stride + x0]
+                    + integral[y0 * stride + x0];
+                const sumSq
+                    = integralSq[(y1 + 1) * stride + (x1 + 1)]
+                    - integralSq[y0 * stride + (x1 + 1)]
+                    - integralSq[(y1 + 1) * stride + x0]
+                    + integralSq[y0 * stride + x0];
+                const localMean = sum / Math.max(1, area);
+                const localVariance = Math.max(
+                    0,
+                    sumSq / Math.max(1, area) - localMean * localMean
+                );
+                const localStdDev = Math.sqrt(localVariance);
+                const sauvolaThreshold = localMean * (
+                    1 + ADAPTIVE_SAUVOLA_K * (localStdDev / ADAPTIVE_SAUVOLA_R - 1)
+                );
+                const threshold = sauvolaThreshold - normalizedOffset;
+                const sourceLum = luminance[y * width + x];
+                const binary = sourceLum > threshold ? 255 : 0;
+                const softened = sourceLum * (1 - ADAPTIVE_BINARY_BLEND)
+                    + binary * ADAPTIVE_BINARY_BLEND;
+                const value = this.clamp(softened);
+                const out = (y * width + x) * 4;
+                data[out] = value;
+                data[out + 1] = value;
+                data[out + 2] = value;
+            }
+        }
+    }
+
+    private applyMorphClose(
+        imageData: ImageData,
+        width: number,
+        height: number,
+        iterations: number
+    ): void {
+        let current = new Uint8ClampedArray(imageData.data);
+        const normalizedIterations = this.normalizeMorphCloseIterations(iterations);
+        for (let i = 0; i < normalizedIterations; i += 1) {
+            const dilated = this.applyMorphOperator(current, width, height, true);
+            current = this.applyMorphOperator(dilated, width, height, false);
+        }
+        imageData.data.set(current);
+    }
+
+    private applyMorphOperator(
+        source: Uint8ClampedArray,
+        width: number,
+        height: number,
+        dilation: boolean
+    ): Uint8ClampedArray {
+        const output = new Uint8ClampedArray(source.length);
+        for (let y = 0; y < height; y += 1) {
+            for (let x = 0; x < width; x += 1) {
+                let value = dilation ? 0 : 255;
+                for (let ky = -1; ky <= 1; ky += 1) {
+                    const yy = Math.min(height - 1, Math.max(0, y + ky));
+                    for (let kx = -1; kx <= 1; kx += 1) {
+                        const xx = Math.min(width - 1, Math.max(0, x + kx));
+                        const idx = (yy * width + xx) * 4;
+                        const sample = source[idx];
+                        if (dilation) {
+                            value = Math.max(value, sample);
+                        } else {
+                            value = Math.min(value, sample);
+                        }
+                    }
+                }
+                const outIdx = (y * width + x) * 4;
+                output[outIdx] = value;
+                output[outIdx + 1] = value;
+                output[outIdx + 2] = value;
+                output[outIdx + 3] = source[outIdx + 3];
+            }
+        }
+        return output;
     }
 
     /**
@@ -1229,5 +1684,10 @@ export class ImagePreprocessor {
     public dispose(): void {
         this.tempCanvas = null;
         this.tempContext = null;
+        this.resetTemporalDenoiseCache();
+    }
+
+    private resetTemporalDenoiseCache(): void {
+        this.temporalDenoiseCache.clear();
     }
 }
