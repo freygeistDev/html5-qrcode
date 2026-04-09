@@ -184,9 +184,19 @@ export interface Html5QrcodeDebugMeta {
     candidateCount: number;
     variantLabel: string;
     inverted: boolean;
+    rotationAngle?: number;
     preprocessingSnapshot?: any;
     attempted?: boolean;
     successful?: boolean;
+    sourceVideoWidth?: number;
+    sourceVideoHeight?: number;
+    sourceRegionX?: number;
+    sourceRegionY?: number;
+    sourceRegionWidth?: number;
+    sourceRegionHeight?: number;
+    videoClientWidth?: number;
+    videoClientHeight?: number;
+    videoObjectFit?: string;
 }
 
 /**
@@ -513,7 +523,25 @@ interface DecodeCanvasCandidate {
     canvas: HTMLCanvasElement;
     variantLabel: string;
     inverted: boolean;
+    rotationAngle?: number;
     preprocessingSnapshot?: any;
+}
+
+interface DecodeCanvasAttempt {
+    candidate: DecodeCanvasCandidate;
+    candidateIndex: number;
+}
+
+interface VideoSourceRegionMapping {
+    sx: number;
+    sy: number;
+    sWidth: number;
+    sHeight: number;
+    sourceVideoWidth: number;
+    sourceVideoHeight: number;
+    videoClientWidth: number;
+    videoClientHeight: number;
+    videoObjectFit: string;
 }
 
 /**
@@ -556,6 +584,8 @@ export class Html5Qrcode {
         | undefined;
     private debugCandidateMode: Html5QrcodeDebugCandidateMode = "attempted";
     private debugFrameId: number = 0;
+    private rotationAttemptCursor: number = 0;
+    private currentFrameSourceRegion: VideoSourceRegionMapping | null = null;
     private autoFocusRetryTimeout: any | null = null;
     private autoFocusRunId: number = 0;
     //#endregion
@@ -565,6 +595,8 @@ export class Html5Qrcode {
     // TODO(mebjas): deprecate this.
     /** @hidden */
     public isScanning: boolean = false;
+
+    private static readonly MAX_ROTATION_CANDIDATES_PER_FRAME = 2;
 
     /**
      * Initialize the code scanner.
@@ -882,6 +914,7 @@ export class Html5Qrcode {
             if ($this.context) {
                 $this.context = null;
             }
+            $this.currentFrameSourceRegion = null;
 
             toStoppedStateTransaction.execute();
             $this.hidePausedState();
@@ -1482,6 +1515,9 @@ export class Html5Qrcode {
                                         ? meta.variantLabel
                                         : `candidate ${index + 1}`,
                                 inverted: !!meta.inverted,
+                                rotationAngle: typeof meta.rotationAngle === "number"
+                                    ? meta.rotationAngle
+                                    : 0,
                                 preprocessingSnapshot: meta.preprocessingSnapshot
                             };
                         });
@@ -1497,6 +1533,7 @@ export class Html5Qrcode {
                                 canvas: canvas,
                                 variantLabel: `candidate ${index + 1}`,
                                 inverted: false,
+                                rotationAngle: 0,
                                 preprocessingSnapshot: undefined
                             };
                         });
@@ -1513,6 +1550,7 @@ export class Html5Qrcode {
             canvas: this.canvasElement!,
             variantLabel: "raw",
             inverted: false,
+            rotationAngle: 0,
             preprocessingSnapshot: undefined
         }];
     }
@@ -1528,6 +1566,8 @@ export class Html5Qrcode {
         let lastError: any = null;
         const frameId = ++this.debugFrameId;
         const candidateCount = candidates.length;
+        const sourceMeta = this.getDebugSourceRegionMeta();
+        const decodeAttempts = this.buildDecodeAttempts(candidates);
 
         if (this.debugCandidateMode === "all") {
             candidates.forEach((candidate, index) => {
@@ -1537,24 +1577,29 @@ export class Html5Qrcode {
                     candidateCount: candidateCount,
                     variantLabel: candidate.variantLabel,
                     inverted: candidate.inverted,
+                    rotationAngle: candidate.rotationAngle,
                     preprocessingSnapshot: candidate.preprocessingSnapshot,
                     attempted: false,
-                    successful: false
+                    successful: false,
+                    ...sourceMeta
                 });
             });
         }
 
-        for (let index = 0; index < candidates.length; index++) {
-            const candidate = candidates[index];
+        for (let index = 0; index < decodeAttempts.length; index++) {
+            const decodeAttempt = decodeAttempts[index];
+            const candidate = decodeAttempt.candidate;
             const candidateMeta = {
                 frameId: frameId,
-                candidateIndex: index + 1,
+                candidateIndex: decodeAttempt.candidateIndex + 1,
                 candidateCount: candidateCount,
                 variantLabel: candidate.variantLabel,
                 inverted: candidate.inverted,
+                rotationAngle: candidate.rotationAngle,
                 preprocessingSnapshot: candidate.preprocessingSnapshot,
                 attempted: true,
-                successful: false
+                successful: false,
+                ...sourceMeta
             };
             this.emitDebugCanvas(candidate.canvas, candidateMeta);
 
@@ -1583,6 +1628,87 @@ export class Html5Qrcode {
         return false;
     }
 
+    private buildDecodeAttempts(
+        candidates: DecodeCanvasCandidate[]
+    ): DecodeCanvasAttempt[] {
+        if (!candidates || candidates.length === 0) {
+            return [];
+        }
+
+        const baseAttempts: DecodeCanvasAttempt[] = [];
+        const rotationAttempts: DecodeCanvasAttempt[] = [];
+
+        candidates.forEach((candidate, index) => {
+            const rotationAngle = typeof candidate.rotationAngle === "number"
+                ? candidate.rotationAngle
+                : 0;
+            const target = Math.abs(rotationAngle) > 0.001
+                ? rotationAttempts
+                : baseAttempts;
+            target.push({
+                candidate: candidate,
+                candidateIndex: index
+            });
+        });
+
+        if (rotationAttempts.length === 0) {
+            return baseAttempts;
+        }
+
+        const configuredMaxPasses = this.getConfiguredMaxPassesPerFrame();
+        if (configuredMaxPasses > 0 && baseAttempts.length >= configuredMaxPasses) {
+            return baseAttempts.slice(0, configuredMaxPasses);
+        }
+
+        const rotationBudget = configuredMaxPasses > 0
+            ? Math.max(0, configuredMaxPasses - baseAttempts.length)
+            : Html5Qrcode.MAX_ROTATION_CANDIDATES_PER_FRAME;
+        const maxRotationsPerFrame = Math.max(
+            0,
+            Math.min(rotationBudget, rotationAttempts.length)
+        );
+        if (maxRotationsPerFrame <= 0) {
+            return baseAttempts;
+        }
+
+        const start = this.rotationAttemptCursor % rotationAttempts.length;
+        for (let i = 0; i < maxRotationsPerFrame; i++) {
+            baseAttempts.push(rotationAttempts[
+                (start + i) % rotationAttempts.length
+            ]);
+        }
+        this.rotationAttemptCursor = (
+            start + maxRotationsPerFrame
+        ) % rotationAttempts.length;
+
+        return baseAttempts;
+    }
+
+    private getConfiguredMaxPassesPerFrame(): number {
+        if (!this.imagePreprocessor
+            || typeof this.imagePreprocessor.getConfig !== "function") {
+            return 0;
+        }
+
+        try {
+            const cfg = this.imagePreprocessor.getConfig();
+            if (!cfg || typeof cfg !== "object") {
+                return 0;
+            }
+            const raw = Number((cfg as any).maxPasses);
+            if (!isFinite(raw)) {
+                return 0;
+            }
+            const normalized = Math.floor(raw);
+            if (normalized < 1) {
+                return 0;
+            }
+            return Math.min(12, normalized);
+        } catch (_error) {
+            return 0;
+        }
+    }
+
     private emitDebugCanvas(
         canvas: HTMLCanvasElement,
         meta: Html5QrcodeDebugMeta
@@ -1602,6 +1728,121 @@ export class Html5Qrcode {
         }
     }
 
+    private getDebugSourceRegionMeta(): Partial<Html5QrcodeDebugMeta> {
+        if (!this.currentFrameSourceRegion) {
+            return {};
+        }
+
+        return {
+            sourceVideoWidth: this.currentFrameSourceRegion.sourceVideoWidth,
+            sourceVideoHeight: this.currentFrameSourceRegion.sourceVideoHeight,
+            sourceRegionX: Math.round(this.currentFrameSourceRegion.sx),
+            sourceRegionY: Math.round(this.currentFrameSourceRegion.sy),
+            sourceRegionWidth: Math.round(this.currentFrameSourceRegion.sWidth),
+            sourceRegionHeight: Math.round(this.currentFrameSourceRegion.sHeight),
+            videoClientWidth: this.currentFrameSourceRegion.videoClientWidth,
+            videoClientHeight: this.currentFrameSourceRegion.videoClientHeight,
+            videoObjectFit: this.currentFrameSourceRegion.videoObjectFit
+        };
+    }
+
+    private readVideoObjectFit(videoElement: HTMLVideoElement): string {
+        let objectFit = "";
+        try {
+            if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+                objectFit = window.getComputedStyle(videoElement).objectFit || "";
+            }
+        } catch (error) {
+            objectFit = "";
+        }
+
+        if (!objectFit && videoElement.style && typeof videoElement.style.objectFit === "string") {
+            objectFit = videoElement.style.objectFit;
+        }
+
+        const normalized = (objectFit || "fill").trim().toLowerCase();
+        if (normalized === "cover"
+            || normalized === "contain"
+            || normalized === "fill"
+            || normalized === "none"
+            || normalized === "scale-down") {
+            return normalized;
+        }
+
+        return "fill";
+    }
+
+    private computeVideoSourceRegion(videoElement: HTMLVideoElement): VideoSourceRegionMapping {
+        if (!this.qrRegion) {
+            throw "qrRegion undefined when localMediaStream is ready.";
+        }
+
+        const sourceVideoWidth = Math.max(1, Math.floor(videoElement.videoWidth || 0));
+        const sourceVideoHeight = Math.max(1, Math.floor(videoElement.videoHeight || 0));
+        const videoClientWidth = Math.max(
+            1,
+            Math.floor(videoElement.clientWidth || this.qrRegion.width || sourceVideoWidth)
+        );
+        const videoClientHeight = Math.max(
+            1,
+            Math.floor(videoElement.clientHeight || this.qrRegion.height || sourceVideoHeight)
+        );
+        const videoObjectFit = this.readVideoObjectFit(videoElement);
+
+        let sx = 0;
+        let sy = 0;
+        let sWidth = sourceVideoWidth;
+        let sHeight = sourceVideoHeight;
+
+        if (videoObjectFit === "cover"
+            || videoObjectFit === "contain"
+            || videoObjectFit === "scale-down") {
+            const coverScale = Math.max(
+                videoClientWidth / sourceVideoWidth,
+                videoClientHeight / sourceVideoHeight
+            );
+            const containScale = Math.min(
+                videoClientWidth / sourceVideoWidth,
+                videoClientHeight / sourceVideoHeight
+            );
+            const scale = videoObjectFit === "cover" ? coverScale : containScale;
+            const renderedWidth = sourceVideoWidth * scale;
+            const renderedHeight = sourceVideoHeight * scale;
+            const offsetX = (renderedWidth - videoClientWidth) / 2;
+            const offsetY = (renderedHeight - videoClientHeight) / 2;
+
+            sx = (this.qrRegion.x + offsetX) / scale;
+            sy = (this.qrRegion.y + offsetY) / scale;
+            sWidth = this.qrRegion.width / scale;
+            sHeight = this.qrRegion.height / scale;
+        } else {
+            // Legacy mapping for stretched/fill video rendering.
+            const widthRatio = sourceVideoWidth / videoClientWidth;
+            const heightRatio = sourceVideoHeight / videoClientHeight;
+            sx = this.qrRegion.x * widthRatio;
+            sy = this.qrRegion.y * heightRatio;
+            sWidth = this.qrRegion.width * widthRatio;
+            sHeight = this.qrRegion.height * heightRatio;
+        }
+
+        sx = Math.max(0, Math.min(sourceVideoWidth - 1, sx));
+        sy = Math.max(0, Math.min(sourceVideoHeight - 1, sy));
+        sWidth = Math.max(1, Math.min(sourceVideoWidth - sx, sWidth));
+        sHeight = Math.max(1, Math.min(sourceVideoHeight - sy, sHeight));
+
+        return {
+            sx: sx,
+            sy: sy,
+            sWidth: sWidth,
+            sHeight: sHeight,
+            sourceVideoWidth: sourceVideoWidth,
+            sourceVideoHeight: sourceVideoHeight,
+            videoClientWidth: videoClientWidth,
+            videoClientHeight: videoClientHeight,
+            videoObjectFit: videoObjectFit
+        };
+    }
+
     /**
      * Forever scanning method.
      */
@@ -1617,31 +1858,23 @@ export class Html5Qrcode {
         if (!this.renderedCamera) {
             return;
         }
-        // There is difference in size of rendered video and one that is
-        // considered by the canvas. Need to account for scaling factor.
         const videoElement = this.renderedCamera!.getSurface();
-        const widthRatio
-            = videoElement.videoWidth / videoElement.clientWidth;
-        const heightRatio
-            = videoElement.videoHeight / videoElement.clientHeight;
 
         if (!this.qrRegion) {
             throw "qrRegion undefined when localMediaStream is ready.";
         }
-        const sWidthOffset = this.qrRegion.width * widthRatio;
-        const sHeightOffset = this.qrRegion.height * heightRatio;
-        const sxOffset = this.qrRegion.x * widthRatio;
-        const syOffset = this.qrRegion.y * heightRatio;
+        const sourceRegion = this.computeVideoSourceRegion(videoElement);
+        this.currentFrameSourceRegion = sourceRegion;
 
         // Only decode the relevant area, ignore the shaded area,
         // More reference:
         // https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/drawImage
         this.context!.drawImage(
             videoElement,
-            /* sx= */ sxOffset,
-            /* sy= */ syOffset,
-            /* sWidth= */ sWidthOffset,
-            /* sHeight= */ sHeightOffset,
+            /* sx= */ sourceRegion.sx,
+            /* sy= */ sourceRegion.sy,
+            /* sWidth= */ sourceRegion.sWidth,
+            /* sHeight= */ sourceRegion.sHeight,
             /* dx= */ 0,
             /* dy= */  0,
             /* dWidth= */ this.qrRegion.width,

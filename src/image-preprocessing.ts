@@ -83,17 +83,51 @@ export interface ImagePreprocessingConfig {
      */
     multiPass?: boolean;
 
+    /**
+     * Enable additional rotated decode candidates.
+     * Default: false
+     */
+    rotationPasses?: boolean;
+
+    /**
+     * Rotation angles in degrees for additional decode candidates.
+     * Values are clamped to [-45, 45]. 0 is ignored.
+     * If empty while rotationPasses=true, internal default angles are used.
+     */
+    rotationAngles?: number[];
+
+    /**
+     * Build extra orthogonal passes for enabled preprocessing modules.
+     * Useful for debugging which individual transform helps most.
+     * Default: false
+     */
+    orthogonalPasses?: boolean;
+
+    /**
+     * Maximum number of decode candidates per frame.
+     * Applies to all generated preprocessing variants (normal, inverted, multi-pass, rotation).
+     * Range: 1-12.
+     * Default: 5
+     */
+    maxPasses?: number;
+
 }
 
 export interface ImagePreprocessingCandidateMeta {
     variantLabel: string;
     inverted: boolean;
+    rotationAngle?: number;
     preprocessingSnapshot: ImagePreprocessingConfig;
 }
 
 export interface ImagePreprocessingCandidate {
     canvas: HTMLCanvasElement;
     meta: ImagePreprocessingCandidateMeta;
+}
+
+interface ImagePreprocessingPassDescriptor {
+    config: ImagePreprocessingConfig;
+    passLabel?: string;
 }
 
 /**
@@ -109,8 +143,17 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     sharpenIntensity: 0.3,
     blur: false,
     blurRadius: 1.5,
-    multiPass: false
+    multiPass: false,
+    rotationPasses: false,
+    rotationAngles: [],
+    orthogonalPasses: false,
+    maxPasses: 5
 };
+
+const DEFAULT_ROTATION_PASS_ANGLES: number[] = [-12, 12, -24, 24];
+const MAX_ROTATION_PASS_ANGLES = 6;
+const MIN_PREPROCESSING_PASSES = 1;
+const MAX_PREPROCESSING_PASSES = 12;
 
 /**
  * Preset configurations for common use cases.
@@ -228,14 +271,14 @@ export class ImagePreprocessor {
     private tempContext: CanvasRenderingContext2D | null = null;
 
     constructor(config?: ImagePreprocessingConfig) {
-        this.config = { ...DEFAULT_PREPROCESSING_CONFIG, ...config };
+        this.config = this.normalizeConfig(config);
     }
 
     /**
      * Update preprocessing configuration.
      */
     public setConfig(config: ImagePreprocessingConfig): void {
-        this.config = { ...DEFAULT_PREPROCESSING_CONFIG, ...config };
+        this.config = this.normalizeConfig(config);
     }
 
     /**
@@ -256,7 +299,8 @@ export class ImagePreprocessor {
             this.config.tryInverted ||
             this.config.forceInvert ||
             this.config.blur ||
-            this.config.multiPass
+            this.config.multiPass ||
+            this.config.rotationPasses
         );
     }
 
@@ -281,52 +325,67 @@ export class ImagePreprocessor {
     ): ImagePreprocessingCandidate[] {
         const results: ImagePreprocessingCandidate[] = [];
 
-        const configsToTry = this.config.multiPass
-            ? this.buildMultiPassConfigs(this.config)
-            : [this.config];
-        const passCount = configsToTry.length;
+        const passes = this.buildPassDescriptors(this.config);
+        const passCount = passes.length;
 
-        configsToTry.forEach((cfg, passIndex) => {
+        passes.forEach((pass, passIndex) => {
+            const cfg = pass.config;
             const variantsForConfig: ImagePreprocessingCandidate[] = [];
+            const preprocessingSnapshot = this.buildPreprocessingSnapshot(cfg);
             const processed = this.processCanvasWithConfig(
                 sourceCanvas, cfg, false);
-            variantsForConfig.push({
-                canvas: processed,
-                meta: {
-                    variantLabel: this.buildVariantLabel(cfg, passIndex, passCount, false),
-                    inverted: !!cfg.forceInvert,
-                    preprocessingSnapshot: this.buildPreprocessingSnapshot(cfg)
-                }
-            });
+            variantsForConfig.push(...this.buildCandidatesForVariant(
+                processed,
+                cfg,
+                passIndex,
+                passCount,
+                false,
+                preprocessingSnapshot,
+                pass.passLabel
+            ));
 
             if (cfg.tryInverted) {
                 const inverted = this.processCanvasWithConfig(
                     sourceCanvas, cfg, true);
-                variantsForConfig.push({
-                    canvas: inverted,
-                    meta: {
-                        variantLabel: this.buildVariantLabel(cfg, passIndex, passCount, true),
-                        inverted: true,
-                        preprocessingSnapshot: this.buildPreprocessingSnapshot(cfg)
-                    }
-                });
+                variantsForConfig.push(...this.buildCandidatesForVariant(
+                    inverted,
+                    cfg,
+                    passIndex,
+                    passCount,
+                    true,
+                    preprocessingSnapshot,
+                    pass.passLabel
+                ));
             }
 
             results.push(...variantsForConfig);
         });
 
-        return results;
+        const maxPasses = this.normalizeMaxPasses(this.config.maxPasses);
+        return results.slice(0, maxPasses);
     }
 
     private buildVariantLabel(
         config: ImagePreprocessingConfig,
         passIndex: number,
         passCount: number,
-        inverted: boolean
+        inverted: boolean,
+        rotationAngle?: number,
+        passLabel?: string
     ): string {
-        const passLabel = passCount > 1 ? `mp${passIndex + 1}` : "mp1";
+        const effectivePassLabel = typeof passLabel === "string" && passLabel.trim() !== ""
+            ? passLabel.trim()
+            : (passCount > 1 ? `mp${passIndex + 1}` : "mp1");
+        const angle = typeof rotationAngle === "number"
+            ? rotationAngle
+            : 0;
+        const hasRotation = Math.abs(angle) > 0.001;
+        const roundedAngle = Math.round(angle * 100) / 100;
+        const rotationLabel = hasRotation
+            ? ` rot${roundedAngle >= 0 ? "+" : ""}${roundedAngle}`
+            : "";
         const modeLabel = inverted || !!config.forceInvert ? "inverted" : "normal";
-        return `${passLabel} ${modeLabel}`;
+        return `${effectivePassLabel}${rotationLabel} ${modeLabel}`;
     }
 
     private buildPreprocessingSnapshot(
@@ -348,8 +407,156 @@ export class ImagePreprocessor {
             blurRadius: typeof config.blurRadius === "number"
                 ? config.blurRadius
                 : DEFAULT_PREPROCESSING_CONFIG.blurRadius,
-            multiPass: !!config.multiPass
+            multiPass: !!config.multiPass,
+            rotationPasses: !!config.rotationPasses,
+            rotationAngles: this.normalizeRotationAngles(config.rotationAngles),
+            orthogonalPasses: !!config.orthogonalPasses,
+            maxPasses: this.normalizeMaxPasses(config.maxPasses)
         };
+    }
+
+    private buildCandidatesForVariant(
+        sourceCanvas: HTMLCanvasElement,
+        config: ImagePreprocessingConfig,
+        passIndex: number,
+        passCount: number,
+        inverted: boolean,
+        preprocessingSnapshot: ImagePreprocessingConfig,
+        passLabel?: string
+    ): ImagePreprocessingCandidate[] {
+        const results: ImagePreprocessingCandidate[] = [];
+        const baseInverted = inverted || !!config.forceInvert;
+        const baseLabel = this.buildVariantLabel(
+            config,
+            passIndex,
+            passCount,
+            baseInverted,
+            0,
+            passLabel
+        );
+        results.push({
+            canvas: sourceCanvas,
+            meta: {
+                variantLabel: baseLabel,
+                inverted: baseInverted,
+                rotationAngle: 0,
+                preprocessingSnapshot: preprocessingSnapshot
+            }
+        });
+
+        const rotationAngles = this.getRotationAnglesForConfig(config);
+        for (const angle of rotationAngles) {
+            const rotatedCanvas = this.rotateCanvas(sourceCanvas, angle);
+            results.push({
+                canvas: rotatedCanvas,
+                meta: {
+                    variantLabel: this.buildVariantLabel(
+                        config,
+                        passIndex,
+                        passCount,
+                        baseInverted,
+                        angle,
+                        passLabel
+                    ),
+                    inverted: baseInverted,
+                    rotationAngle: angle,
+                    preprocessingSnapshot: preprocessingSnapshot
+                }
+            });
+        }
+
+        return results;
+    }
+
+    private getRotationAnglesForConfig(config: ImagePreprocessingConfig): number[] {
+        if (!config.rotationPasses) {
+            return [];
+        }
+
+        const configuredAngles = this.normalizeRotationAngles(config.rotationAngles);
+        if (configuredAngles.length > 0) {
+            return configuredAngles;
+        }
+
+        return DEFAULT_ROTATION_PASS_ANGLES.slice(0, MAX_ROTATION_PASS_ANGLES);
+    }
+
+    private rotateCanvas(
+        sourceCanvas: HTMLCanvasElement,
+        angleDeg: number
+    ): HTMLCanvasElement {
+        const resultCanvas = document.createElement("canvas");
+        resultCanvas.width = sourceCanvas.width;
+        resultCanvas.height = sourceCanvas.height;
+        const ctx = resultCanvas.getContext("2d")!;
+
+        const angleRad = (angleDeg * Math.PI) / 180;
+        const centerX = sourceCanvas.width / 2;
+        const centerY = sourceCanvas.height / 2;
+
+        ctx.translate(centerX, centerY);
+        ctx.rotate(angleRad);
+        ctx.drawImage(
+            sourceCanvas,
+            -centerX,
+            -centerY,
+            sourceCanvas.width,
+            sourceCanvas.height
+        );
+
+        return resultCanvas;
+    }
+
+    private normalizeRotationAngles(rawAngles: any): number[] {
+        if (!Array.isArray(rawAngles)) {
+            return [];
+        }
+
+        const seen = new Set<string>();
+        const output: number[] = [];
+        rawAngles.forEach((entry) => {
+            const value = Number(entry);
+            if (!isFinite(value)) {
+                return;
+            }
+            const clamped = Math.max(-45, Math.min(45, value));
+            if (Math.abs(clamped) < 0.001) {
+                return;
+            }
+            const normalized = Math.round(clamped * 100) / 100;
+            const key = normalized.toFixed(2);
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            output.push(normalized);
+        });
+
+        return output.slice(0, MAX_ROTATION_PASS_ANGLES);
+    }
+
+    private normalizeConfig(
+        config?: ImagePreprocessingConfig
+    ): ImagePreprocessingConfig {
+        const merged: ImagePreprocessingConfig = {
+            ...DEFAULT_PREPROCESSING_CONFIG,
+            ...(config || {})
+        };
+        merged.rotationPasses = !!merged.rotationPasses;
+        merged.rotationAngles = this.normalizeRotationAngles(merged.rotationAngles);
+        merged.orthogonalPasses = !!merged.orthogonalPasses;
+        merged.maxPasses = this.normalizeMaxPasses(merged.maxPasses);
+        return merged;
+    }
+
+    private normalizeMaxPasses(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.maxPasses || 5;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return Math.max(
+            MIN_PREPROCESSING_PASSES,
+            Math.min(MAX_PREPROCESSING_PASSES, value)
+        );
     }
 
     private buildMultiPassConfigs(
@@ -394,6 +601,114 @@ export class ImagePreprocessor {
         }
 
         return configs.slice(0, 4);
+    }
+
+    private buildPassDescriptors(
+        baseConfig: ImagePreprocessingConfig
+    ): ImagePreprocessingPassDescriptor[] {
+        if (!baseConfig.orthogonalPasses) {
+            const defaults = baseConfig.multiPass
+                ? this.buildMultiPassConfigs(baseConfig)
+                : [baseConfig];
+            return defaults.map((cfg, index) => {
+                return {
+                    config: cfg,
+                    passLabel: defaults.length > 1 ? `mp${index + 1}` : "mp1"
+                };
+            });
+        }
+
+        const descriptors: ImagePreprocessingPassDescriptor[] = [];
+        const seen = new Set<string>();
+        const isolatedBase: ImagePreprocessingConfig = {
+            ...baseConfig,
+            contrastEnhancement: false,
+            grayscale: false,
+            tryInverted: false,
+            forceInvert: false,
+            blur: false,
+            sharpen: false,
+            multiPass: false
+        };
+
+        const add = (label: string, cfg: ImagePreprocessingConfig): void => {
+            const normalized = this.normalizeConfig({
+                ...cfg,
+                multiPass: false
+            });
+            const key = JSON.stringify(this.buildPreprocessingSnapshot(normalized));
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            descriptors.push({
+                config: normalized,
+                passLabel: label
+            });
+        };
+
+        if (baseConfig.contrastEnhancement) {
+            add("contrast", {
+                ...isolatedBase,
+                contrastEnhancement: true,
+                contrastFactor: baseConfig.contrastFactor
+            });
+        }
+        if (baseConfig.grayscale) {
+            add("grayscale", {
+                ...isolatedBase,
+                grayscale: true
+            });
+        }
+        if (baseConfig.blur) {
+            add("blur", {
+                ...isolatedBase,
+                blur: true,
+                blurRadius: baseConfig.blurRadius
+            });
+        }
+        if (baseConfig.sharpen) {
+            add("sharpen", {
+                ...isolatedBase,
+                sharpen: true,
+                sharpenIntensity: baseConfig.sharpenIntensity
+            });
+        }
+        if (baseConfig.tryInverted || baseConfig.forceInvert) {
+            add("invert", {
+                ...isolatedBase,
+                tryInverted: false,
+                forceInvert: true
+            });
+        }
+        if (baseConfig.multiPass) {
+            const multiVariants = this.buildMultiPassConfigs(baseConfig);
+            multiVariants.forEach((variant, index) => {
+                if (index === 0) {
+                    return;
+                }
+                let label = `multi${index}`;
+                if (variant.forceInvert) {
+                    label = "multi-invert";
+                } else if (variant.sharpen && !baseConfig.sharpen) {
+                    label = "multi-sharpen";
+                } else if (variant.blur && !baseConfig.blur) {
+                    label = "multi-blur";
+                } else if (variant.contrastEnhancement && !baseConfig.contrastEnhancement) {
+                    label = "multi-contrast";
+                }
+                add(label, variant);
+            });
+        }
+
+        add("combo", {
+            ...baseConfig,
+            tryInverted: false,
+            forceInvert: false,
+            multiPass: false
+        });
+
+        return descriptors;
     }
 
     /**
