@@ -1703,7 +1703,7 @@ export class Html5Qrcode {
             if (normalized < 1) {
                 return 0;
             }
-            return Math.min(12, normalized);
+            return Math.min(256, normalized);
         } catch (_error) {
             return 0;
         }

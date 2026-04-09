@@ -106,10 +106,29 @@ export interface ImagePreprocessingConfig {
     /**
      * Maximum number of decode candidates per frame.
      * Applies to all generated preprocessing variants (normal, inverted, multi-pass, rotation).
-     * Range: 1-12.
+     * Range: 1-256.
      * Default: 5
      */
     maxPasses?: number;
+
+    /**
+     * Generate additional combinational passes (A+B, A+C, A+B+C, ...).
+     * Default: false
+     */
+    combinationPasses?: boolean;
+
+    /**
+     * Maximum module count per generated combination pass.
+     * Range: 2-5.
+     * Default: 3
+     */
+    combinationMaxSize?: number;
+
+    /**
+     * Include inversion module in combination pass generation.
+     * Default: false
+     */
+    combinationIncludeInversion?: boolean;
 
 }
 
@@ -130,6 +149,11 @@ interface ImagePreprocessingPassDescriptor {
     passLabel?: string;
 }
 
+interface PreprocessingModuleDescriptor {
+    key: string;
+    apply: (target: ImagePreprocessingConfig) => void;
+}
+
 /**
  * Default preprocessing configuration optimized for difficult codes.
  */
@@ -147,13 +171,18 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     rotationPasses: false,
     rotationAngles: [],
     orthogonalPasses: false,
-    maxPasses: 5
+    maxPasses: 5,
+    combinationPasses: false,
+    combinationMaxSize: 3,
+    combinationIncludeInversion: false
 };
 
 const DEFAULT_ROTATION_PASS_ANGLES: number[] = [-12, 12, -24, 24];
 const MAX_ROTATION_PASS_ANGLES = 6;
 const MIN_PREPROCESSING_PASSES = 1;
-const MAX_PREPROCESSING_PASSES = 12;
+const MAX_PREPROCESSING_PASSES = 256;
+const MIN_COMBINATION_PASS_SIZE = 2;
+const MAX_COMBINATION_PASS_SIZE = 5;
 
 /**
  * Preset configurations for common use cases.
@@ -362,7 +391,73 @@ export class ImagePreprocessor {
         });
 
         const maxPasses = this.normalizeMaxPasses(this.config.maxPasses);
-        return results.slice(0, maxPasses);
+        return this.limitCandidatesWithFullCombo(results, maxPasses);
+    }
+
+    private isFullComboCandidate(
+        candidate: ImagePreprocessingCandidate
+    ): boolean {
+        const label = candidate?.meta?.variantLabel;
+        if (typeof label !== "string") {
+            return false;
+        }
+        return label.trim().toLowerCase().indexOf("combo-full") === 0;
+    }
+
+    private getPreferredFullComboCandidate(
+        candidates: ImagePreprocessingCandidate[]
+    ): ImagePreprocessingCandidate | null {
+        const fullComboCandidates = candidates.filter((candidate) => {
+            return this.isFullComboCandidate(candidate);
+        });
+        if (fullComboCandidates.length === 0) {
+            return null;
+        }
+
+        const direct = fullComboCandidates.find((candidate) => {
+            const angle = Number(candidate?.meta?.rotationAngle || 0);
+            const normalized = isFinite(angle) ? angle : 0;
+            return Math.abs(normalized) < 0.001;
+        });
+        if (direct) {
+            return direct;
+        }
+
+        return fullComboCandidates[0];
+    }
+
+    private limitCandidatesWithFullCombo(
+        candidates: ImagePreprocessingCandidate[],
+        maxPasses: number
+    ): ImagePreprocessingCandidate[] {
+        if (maxPasses < 1) {
+            return [];
+        }
+
+        if (candidates.length <= maxPasses) {
+            return candidates;
+        }
+
+        const preferredFullCombo = this.getPreferredFullComboCandidate(candidates);
+        if (!preferredFullCombo) {
+            return candidates.slice(0, maxPasses);
+        }
+
+        if (maxPasses === 1) {
+            return [preferredFullCombo];
+        }
+
+        const limited = candidates.slice(0, maxPasses);
+        const withoutFullCombo = limited.filter((candidate) => {
+            return !this.isFullComboCandidate(candidate);
+        });
+        while (withoutFullCombo.length > maxPasses - 1) {
+            withoutFullCombo.pop();
+        }
+        return [
+            ...withoutFullCombo,
+            preferredFullCombo
+        ];
     }
 
     private buildVariantLabel(
@@ -411,7 +506,12 @@ export class ImagePreprocessor {
             rotationPasses: !!config.rotationPasses,
             rotationAngles: this.normalizeRotationAngles(config.rotationAngles),
             orthogonalPasses: !!config.orthogonalPasses,
-            maxPasses: this.normalizeMaxPasses(config.maxPasses)
+            maxPasses: this.normalizeMaxPasses(config.maxPasses),
+            combinationPasses: !!config.combinationPasses,
+            combinationMaxSize: this.normalizeCombinationMaxSize(
+                config.combinationMaxSize
+            ),
+            combinationIncludeInversion: config.combinationIncludeInversion !== false
         };
     }
 
@@ -545,6 +645,11 @@ export class ImagePreprocessor {
         merged.rotationPasses = !!merged.rotationPasses;
         merged.rotationAngles = this.normalizeRotationAngles(merged.rotationAngles);
         merged.orthogonalPasses = !!merged.orthogonalPasses;
+        merged.combinationPasses = !!merged.combinationPasses;
+        merged.combinationMaxSize = this.normalizeCombinationMaxSize(
+            merged.combinationMaxSize
+        );
+        merged.combinationIncludeInversion = merged.combinationIncludeInversion !== false;
         merged.maxPasses = this.normalizeMaxPasses(merged.maxPasses);
         return merged;
     }
@@ -556,6 +661,16 @@ export class ImagePreprocessor {
         return Math.max(
             MIN_PREPROCESSING_PASSES,
             Math.min(MAX_PREPROCESSING_PASSES, value)
+        );
+    }
+
+    private normalizeCombinationMaxSize(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.combinationMaxSize || 3;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return Math.max(
+            MIN_COMBINATION_PASS_SIZE,
+            Math.min(MAX_COMBINATION_PASS_SIZE, value)
         );
     }
 
@@ -603,10 +718,128 @@ export class ImagePreprocessor {
         return configs.slice(0, 4);
     }
 
+    private getConfigSnapshotKey(config: ImagePreprocessingConfig): string {
+        return JSON.stringify(this.buildPreprocessingSnapshot(config));
+    }
+
+    private createIsolatedBaseConfig(
+        baseConfig: ImagePreprocessingConfig
+    ): ImagePreprocessingConfig {
+        return {
+            ...baseConfig,
+            contrastEnhancement: false,
+            grayscale: false,
+            tryInverted: false,
+            forceInvert: false,
+            blur: false,
+            sharpen: false,
+            multiPass: false
+        };
+    }
+
+    private getActivePreprocessingModules(
+        baseConfig: ImagePreprocessingConfig,
+        includeInversion: boolean
+    ): PreprocessingModuleDescriptor[] {
+        const modules: PreprocessingModuleDescriptor[] = [];
+        if (baseConfig.contrastEnhancement) {
+            modules.push({
+                key: "contrast",
+                apply: (target) => {
+                    target.contrastEnhancement = true;
+                    target.contrastFactor = baseConfig.contrastFactor;
+                }
+            });
+        }
+        if (baseConfig.grayscale) {
+            modules.push({
+                key: "grayscale",
+                apply: (target) => {
+                    target.grayscale = true;
+                }
+            });
+        }
+        if (baseConfig.blur) {
+            modules.push({
+                key: "blur",
+                apply: (target) => {
+                    target.blur = true;
+                    target.blurRadius = baseConfig.blurRadius;
+                }
+            });
+        }
+        if (baseConfig.sharpen) {
+            modules.push({
+                key: "sharpen",
+                apply: (target) => {
+                    target.sharpen = true;
+                    target.sharpenIntensity = baseConfig.sharpenIntensity;
+                }
+            });
+        }
+        if ((baseConfig.forceInvert || baseConfig.tryInverted)
+            && includeInversion) {
+            modules.push({
+                key: "invert",
+                apply: (target) => {
+                    target.tryInverted = false;
+                    target.forceInvert = true;
+                }
+            });
+        }
+
+        return modules;
+    }
+
+    private buildConfigFromModules(
+        isolatedBase: ImagePreprocessingConfig,
+        modules: PreprocessingModuleDescriptor[]
+    ): ImagePreprocessingConfig {
+        const cfg: ImagePreprocessingConfig = {
+            ...isolatedBase,
+            multiPass: false,
+            tryInverted: false,
+            forceInvert: false
+        };
+        modules.forEach((module) => {
+            module.apply(cfg);
+        });
+        return cfg;
+    }
+
+    private buildModuleCombinations(
+        modules: PreprocessingModuleDescriptor[],
+        size: number
+    ): PreprocessingModuleDescriptor[][] {
+        const output: PreprocessingModuleDescriptor[][] = [];
+        if (size < 1 || modules.length < size) {
+            return output;
+        }
+
+        const current: PreprocessingModuleDescriptor[] = [];
+        const visit = (startIndex: number): void => {
+            if (current.length === size) {
+                output.push(current.slice());
+                return;
+            }
+            const remaining = size - current.length;
+            for (let index = startIndex; index <= modules.length - remaining; index += 1) {
+                current.push(modules[index]);
+                visit(index + 1);
+                current.pop();
+            }
+        };
+        visit(0);
+        return output;
+    }
+
     private buildPassDescriptors(
         baseConfig: ImagePreprocessingConfig
     ): ImagePreprocessingPassDescriptor[] {
-        if (!baseConfig.orthogonalPasses) {
+        const combinationPassesEnabled = !!baseConfig.combinationPasses;
+        const includeInversionInCombinations
+            = baseConfig.combinationIncludeInversion === true;
+        if (!baseConfig.orthogonalPasses && !combinationPassesEnabled) {
             const defaults = baseConfig.multiPass
                 ? this.buildMultiPassConfigs(baseConfig)
                 : [baseConfig];
@@ -619,68 +852,82 @@ export class ImagePreprocessor {
         }
 
         const descriptors: ImagePreprocessingPassDescriptor[] = [];
-        const seen = new Set<string>();
-        const isolatedBase: ImagePreprocessingConfig = {
-            ...baseConfig,
-            contrastEnhancement: false,
-            grayscale: false,
-            tryInverted: false,
-            forceInvert: false,
-            blur: false,
-            sharpen: false,
-            multiPass: false
-        };
+        const isolatedBase = this.createIsolatedBaseConfig(baseConfig);
+        const activeModulesForSingles = this.getActivePreprocessingModules(
+            baseConfig,
+            true
+        );
+        const activeModulesForCombinations = this.getActivePreprocessingModules(
+            baseConfig,
+            includeInversionInCombinations
+        );
 
-        const add = (label: string, cfg: ImagePreprocessingConfig): void => {
+        const add = (
+            label: string,
+            cfg: ImagePreprocessingConfig,
+            forceTail: boolean = false
+        ): void => {
             const normalized = this.normalizeConfig({
                 ...cfg,
                 multiPass: false
             });
-            const key = JSON.stringify(this.buildPreprocessingSnapshot(normalized));
-            if (seen.has(key)) {
+            const key = this.getConfigSnapshotKey(normalized);
+            const existingIndex = descriptors.findIndex((descriptor) => {
+                return this.getConfigSnapshotKey(descriptor.config) === key;
+            });
+            if (existingIndex !== -1) {
+                if (!forceTail) {
+                    return;
+                }
+                descriptors.splice(existingIndex, 1);
+            }
+            if (forceTail) {
+                descriptors.push({
+                    config: normalized,
+                    passLabel: label
+                });
                 return;
             }
-            seen.add(key);
             descriptors.push({
                 config: normalized,
                 passLabel: label
             });
         };
 
-        if (baseConfig.contrastEnhancement) {
-            add("contrast", {
-                ...isolatedBase,
-                contrastEnhancement: true,
-                contrastFactor: baseConfig.contrastFactor
+        if (baseConfig.orthogonalPasses) {
+            activeModulesForSingles.forEach((module) => {
+                add(
+                    `single-${module.key}`,
+                    this.buildConfigFromModules(isolatedBase, [module])
+                );
             });
         }
-        if (baseConfig.grayscale) {
-            add("grayscale", {
-                ...isolatedBase,
-                grayscale: true
-            });
+
+        if (combinationPassesEnabled) {
+            const maxCombinationSize = Math.min(
+                this.normalizeCombinationMaxSize(baseConfig.combinationMaxSize),
+                activeModulesForCombinations.length
+            );
+            for (
+                let size = MIN_COMBINATION_PASS_SIZE;
+                size <= maxCombinationSize;
+                size += 1
+            ) {
+                const combinations = this.buildModuleCombinations(
+                    activeModulesForCombinations,
+                    size
+                );
+                combinations.forEach((combination) => {
+                    add(
+                        `combo-${combination.map((module) => {
+                            return module.key;
+                        }).join("+")}`,
+                        this.buildConfigFromModules(isolatedBase, combination)
+                    );
+                });
+            }
         }
-        if (baseConfig.blur) {
-            add("blur", {
-                ...isolatedBase,
-                blur: true,
-                blurRadius: baseConfig.blurRadius
-            });
-        }
-        if (baseConfig.sharpen) {
-            add("sharpen", {
-                ...isolatedBase,
-                sharpen: true,
-                sharpenIntensity: baseConfig.sharpenIntensity
-            });
-        }
-        if (baseConfig.tryInverted || baseConfig.forceInvert) {
-            add("invert", {
-                ...isolatedBase,
-                tryInverted: false,
-                forceInvert: true
-            });
-        }
+
         if (baseConfig.multiPass) {
             const multiVariants = this.buildMultiPassConfigs(baseConfig);
             multiVariants.forEach((variant, index) => {
@@ -701,12 +948,18 @@ export class ImagePreprocessor {
             });
         }
 
-        add("combo", {
-            ...baseConfig,
-            tryInverted: false,
-            forceInvert: false,
-            multiPass: false
-        });
+        const fullComboModules = activeModulesForCombinations.length > 0
+            ? activeModulesForCombinations
+            : activeModulesForSingles;
+
+        add(
+            "combo-full",
+            this.buildConfigFromModules(
+                isolatedBase,
+                fullComboModules
+            ),
+            true
+        );
 
         return descriptors;
     }
