@@ -125,6 +125,40 @@ export interface ImagePreprocessingConfig {
     morphCloseIterations?: number;
 
     /**
+     * Enable motion stabilization for hand jitter compensation.
+     * Works by estimating small frame-to-frame translation and compensating it.
+     * Default: false
+     */
+    stabilization?: boolean;
+
+    /**
+     * Blend strength with previous stabilized frame (0.0 - 0.8).
+     * Higher values are steadier but can increase ghosting.
+     * Default: 0.25
+     */
+    stabilizationStrength?: number;
+
+    /**
+     * Motion score threshold for accepting compensation (0.05 - 0.50).
+     * Lower is stricter (less compensation on noisy frames).
+     * Default: 0.22
+     */
+    stabilizationMotionThreshold?: number;
+
+    /**
+     * Maximum translation compensation in source pixels (1 - 24).
+     * Default: 10
+     */
+    stabilizationMaxShift?: number;
+
+    /**
+     * Downsample factor for motion estimation (2 - 8).
+     * Higher values are faster, lower values are more precise.
+     * Default: 4
+     */
+    stabilizationDownsample?: number;
+
+    /**
      * Enable decoder-side upscaling of the processed region.
      * Useful for very small codes when optical zoom is not available.
      * Default: false
@@ -215,6 +249,13 @@ interface PreprocessingModuleDescriptor {
     apply: (target: ImagePreprocessingConfig) => void;
 }
 
+interface MotionStabilizationState {
+    sample: Float32Array;
+    sampleWidth: number;
+    sampleHeight: number;
+    stabilizedFrame: Uint8ClampedArray;
+}
+
 /**
  * Default preprocessing configuration optimized for difficult codes.
  */
@@ -235,6 +276,11 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     adaptiveOffset: 4,
     morphClose: false,
     morphCloseIterations: 1,
+    stabilization: false,
+    stabilizationStrength: 0.25,
+    stabilizationMotionThreshold: 0.22,
+    stabilizationMaxShift: 10,
+    stabilizationDownsample: 4,
     upscale: false,
     upscaleFactor: 2.0,
     multiPass: false,
@@ -264,6 +310,15 @@ const MAX_ADAPTIVE_OFFSET = 32;
 const MIN_MORPH_CLOSE_ITERATIONS = 1;
 const MAX_MORPH_CLOSE_ITERATIONS = 3;
 const MAX_TEMPORAL_CACHE_ENTRIES = 512;
+const MIN_STABILIZATION_STRENGTH = 0;
+const MAX_STABILIZATION_STRENGTH = 0.8;
+const MIN_STABILIZATION_MOTION_THRESHOLD = 0.05;
+const MAX_STABILIZATION_MOTION_THRESHOLD = 0.5;
+const MIN_STABILIZATION_MAX_SHIFT = 1;
+const MAX_STABILIZATION_MAX_SHIFT = 24;
+const MIN_STABILIZATION_DOWNSAMPLE = 2;
+const MAX_STABILIZATION_DOWNSAMPLE = 8;
+const MAX_STABILIZATION_CACHE_ENTRIES = 32;
 const ADAPTIVE_SAUVOLA_K = 0.2;
 const ADAPTIVE_SAUVOLA_R = 128;
 const ADAPTIVE_BINARY_BLEND = 0.72;
@@ -383,6 +438,7 @@ export class ImagePreprocessor {
     private tempCanvas: HTMLCanvasElement | null = null;
     private tempContext: CanvasRenderingContext2D | null = null;
     private temporalDenoiseCache: Map<string, Uint8ClampedArray> = new Map();
+    private motionStabilizationCache: Map<string, MotionStabilizationState> = new Map();
 
     constructor(config?: ImagePreprocessingConfig) {
         this.config = this.normalizeConfig(config);
@@ -394,6 +450,7 @@ export class ImagePreprocessor {
     public setConfig(config: ImagePreprocessingConfig): void {
         this.config = this.normalizeConfig(config);
         this.resetTemporalDenoiseCache();
+        this.resetMotionStabilizationCache();
     }
 
     /**
@@ -414,6 +471,7 @@ export class ImagePreprocessor {
             this.config.tryInverted ||
             this.config.forceInvert ||
             this.config.blur ||
+            this.config.stabilization ||
             this.config.temporalDenoise ||
             this.config.adaptiveThreshold ||
             this.config.morphClose ||
@@ -607,6 +665,19 @@ export class ImagePreprocessor {
             morphCloseIterations: typeof config.morphCloseIterations === "number"
                 ? this.normalizeMorphCloseIterations(config.morphCloseIterations)
                 : DEFAULT_PREPROCESSING_CONFIG.morphCloseIterations,
+            stabilization: !!config.stabilization,
+            stabilizationStrength: typeof config.stabilizationStrength === "number"
+                ? this.normalizeStabilizationStrength(config.stabilizationStrength)
+                : DEFAULT_PREPROCESSING_CONFIG.stabilizationStrength,
+            stabilizationMotionThreshold: typeof config.stabilizationMotionThreshold === "number"
+                ? this.normalizeStabilizationMotionThreshold(config.stabilizationMotionThreshold)
+                : DEFAULT_PREPROCESSING_CONFIG.stabilizationMotionThreshold,
+            stabilizationMaxShift: typeof config.stabilizationMaxShift === "number"
+                ? this.normalizeStabilizationMaxShift(config.stabilizationMaxShift)
+                : DEFAULT_PREPROCESSING_CONFIG.stabilizationMaxShift,
+            stabilizationDownsample: typeof config.stabilizationDownsample === "number"
+                ? this.normalizeStabilizationDownsample(config.stabilizationDownsample)
+                : DEFAULT_PREPROCESSING_CONFIG.stabilizationDownsample,
             upscale: !!config.upscale,
             upscaleFactor: typeof config.upscaleFactor === "number"
                 ? this.normalizeUpscaleFactor(config.upscaleFactor)
@@ -766,6 +837,19 @@ export class ImagePreprocessor {
         merged.morphCloseIterations = this.normalizeMorphCloseIterations(
             merged.morphCloseIterations
         );
+        merged.stabilization = !!merged.stabilization;
+        merged.stabilizationStrength = this.normalizeStabilizationStrength(
+            merged.stabilizationStrength
+        );
+        merged.stabilizationMotionThreshold = this.normalizeStabilizationMotionThreshold(
+            merged.stabilizationMotionThreshold
+        );
+        merged.stabilizationMaxShift = this.normalizeStabilizationMaxShift(
+            merged.stabilizationMaxShift
+        );
+        merged.stabilizationDownsample = this.normalizeStabilizationDownsample(
+            merged.stabilizationDownsample
+        );
         merged.upscale = !!merged.upscale;
         merged.upscaleFactor = this.normalizeUpscaleFactor(merged.upscaleFactor);
         merged.orthogonalPasses = !!merged.orthogonalPasses;
@@ -841,6 +925,48 @@ export class ImagePreprocessor {
         return Math.max(
             MIN_MORPH_CLOSE_ITERATIONS,
             Math.min(MAX_MORPH_CLOSE_ITERATIONS, value)
+        );
+    }
+
+    private normalizeStabilizationStrength(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.stabilizationStrength || 0.25;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? parsed : fallback;
+        return this.clampFloat(
+            value,
+            MIN_STABILIZATION_STRENGTH,
+            MAX_STABILIZATION_STRENGTH
+        );
+    }
+
+    private normalizeStabilizationMotionThreshold(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.stabilizationMotionThreshold || 0.22;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? parsed : fallback;
+        return this.clampFloat(
+            value,
+            MIN_STABILIZATION_MOTION_THRESHOLD,
+            MAX_STABILIZATION_MOTION_THRESHOLD
+        );
+    }
+
+    private normalizeStabilizationMaxShift(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.stabilizationMaxShift || 10;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return Math.max(
+            MIN_STABILIZATION_MAX_SHIFT,
+            Math.min(MAX_STABILIZATION_MAX_SHIFT, value)
+        );
+    }
+
+    private normalizeStabilizationDownsample(raw: any): number {
+        const fallback = DEFAULT_PREPROCESSING_CONFIG.stabilizationDownsample || 4;
+        const parsed = Number(raw);
+        const value = isFinite(parsed) ? Math.floor(parsed) : fallback;
+        return Math.max(
+            MIN_STABILIZATION_DOWNSAMPLE,
+            Math.min(MAX_STABILIZATION_DOWNSAMPLE, value)
         );
     }
 
@@ -1226,6 +1352,21 @@ export class ImagePreprocessor {
             this.applyGrayscale(data);
         }
 
+        // Frame-to-frame jitter compensation before denoise/contrast pipeline.
+        if (config.stabilization) {
+            this.applyMotionStabilization(
+                data,
+                width,
+                height,
+                this.normalizeStabilizationStrength(config.stabilizationStrength),
+                this.normalizeStabilizationMotionThreshold(
+                    config.stabilizationMotionThreshold
+                ),
+                this.normalizeStabilizationMaxShift(config.stabilizationMaxShift),
+                this.normalizeStabilizationDownsample(config.stabilizationDownsample)
+            );
+        }
+
         // Blend with previous frame to suppress sensor noise/flicker.
         if (config.temporalDenoise) {
             this.applyTemporalDenoise(
@@ -1340,6 +1481,235 @@ export class ImagePreprocessor {
             }
             this.temporalDenoiseCache.delete(oldestKey);
         }
+    }
+
+    private applyMotionStabilization(
+        data: Uint8ClampedArray,
+        width: number,
+        height: number,
+        strength: number,
+        motionThreshold: number,
+        maxShiftPx: number,
+        downsample: number
+    ): void {
+        if (width < 24 || height < 24) {
+            return;
+        }
+
+        const normalizedDownsample = this.normalizeStabilizationDownsample(downsample);
+        const sample = this.buildDownsampledLuminance(
+            data,
+            width,
+            height,
+            normalizedDownsample
+        );
+        const sampleWidth = Math.max(1, Math.floor(width / normalizedDownsample));
+        const sampleHeight = Math.max(1, Math.floor(height / normalizedDownsample));
+        const cacheKey = `${width}x${height}|ds${normalizedDownsample}`;
+
+        const previous = this.motionStabilizationCache.get(cacheKey);
+        if (!previous
+            || previous.sampleWidth !== sampleWidth
+            || previous.sampleHeight !== sampleHeight
+            || previous.stabilizedFrame.length !== data.length) {
+            this.storeMotionStabilizationState(cacheKey, {
+                sample: sample,
+                sampleWidth: sampleWidth,
+                sampleHeight: sampleHeight,
+                stabilizedFrame: new Uint8ClampedArray(data)
+            });
+            return;
+        }
+
+        const maxShiftSample = Math.max(
+            1,
+            Math.round(this.normalizeStabilizationMaxShift(maxShiftPx) / normalizedDownsample)
+        );
+        const shift = this.estimateBestStabilizationShift(
+            sample,
+            previous.sample,
+            sampleWidth,
+            sampleHeight,
+            maxShiftSample
+        );
+        const normalizedThreshold = this.normalizeStabilizationMotionThreshold(
+            motionThreshold
+        );
+        const shouldCompensate = shift.score <= normalizedThreshold;
+
+        let working = new Uint8ClampedArray(data);
+        if (shouldCompensate) {
+            const shiftX = Math.round(-shift.dx * normalizedDownsample);
+            const shiftY = Math.round(-shift.dy * normalizedDownsample);
+            if (shiftX !== 0 || shiftY !== 0) {
+                working = this.translateFrameData(
+                    working,
+                    width,
+                    height,
+                    shiftX,
+                    shiftY
+                );
+            }
+            working = this.blendWithReference(
+                working,
+                previous.stabilizedFrame,
+                this.normalizeStabilizationStrength(strength)
+            );
+        }
+
+        data.set(working);
+        this.storeMotionStabilizationState(cacheKey, {
+            sample: sample,
+            sampleWidth: sampleWidth,
+            sampleHeight: sampleHeight,
+            stabilizedFrame: new Uint8ClampedArray(working)
+        });
+    }
+
+    private storeMotionStabilizationState(
+        key: string,
+        state: MotionStabilizationState
+    ): void {
+        this.motionStabilizationCache.delete(key);
+        this.motionStabilizationCache.set(key, state);
+        while (this.motionStabilizationCache.size > MAX_STABILIZATION_CACHE_ENTRIES) {
+            const oldestKey = this.motionStabilizationCache.keys().next().value;
+            if (oldestKey === undefined) {
+                break;
+            }
+            this.motionStabilizationCache.delete(oldestKey);
+        }
+    }
+
+    private buildDownsampledLuminance(
+        data: Uint8ClampedArray,
+        width: number,
+        height: number,
+        downsample: number
+    ): Float32Array {
+        const sampleWidth = Math.max(1, Math.floor(width / downsample));
+        const sampleHeight = Math.max(1, Math.floor(height / downsample));
+        const sample = new Float32Array(sampleWidth * sampleHeight);
+        for (let sy = 0; sy < sampleHeight; sy += 1) {
+            const y = Math.min(height - 1, sy * downsample + Math.floor(downsample / 2));
+            for (let sx = 0; sx < sampleWidth; sx += 1) {
+                const x = Math.min(width - 1, sx * downsample + Math.floor(downsample / 2));
+                const idx = (y * width + x) * 4;
+                sample[sy * sampleWidth + sx] = data[idx] === data[idx + 1]
+                    && data[idx] === data[idx + 2]
+                    ? data[idx]
+                    : (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+            }
+        }
+        return sample;
+    }
+
+    private estimateBestStabilizationShift(
+        current: Float32Array,
+        previous: Float32Array,
+        width: number,
+        height: number,
+        maxShift: number
+    ): { dx: number; dy: number; score: number } {
+        let bestDx = 0;
+        let bestDy = 0;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (let dy = -maxShift; dy <= maxShift; dy += 1) {
+            for (let dx = -maxShift; dx <= maxShift; dx += 1) {
+                const score = this.computeShiftScore(
+                    current,
+                    previous,
+                    width,
+                    height,
+                    dx,
+                    dy
+                );
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestDx = dx;
+                    bestDy = dy;
+                }
+            }
+        }
+        return {
+            dx: bestDx,
+            dy: bestDy,
+            score: Number.isFinite(bestScore) ? bestScore : 1
+        };
+    }
+
+    private computeShiftScore(
+        current: Float32Array,
+        previous: Float32Array,
+        width: number,
+        height: number,
+        dx: number,
+        dy: number
+    ): number {
+        let sum = 0;
+        let count = 0;
+        for (let y = 0; y < height; y += 1) {
+            const py = y - dy;
+            if (py < 0 || py >= height) {
+                continue;
+            }
+            const row = y * width;
+            const prevRow = py * width;
+            for (let x = 0; x < width; x += 1) {
+                const px = x - dx;
+                if (px < 0 || px >= width) {
+                    continue;
+                }
+                sum += Math.abs(current[row + x] - previous[prevRow + px]);
+                count += 1;
+            }
+        }
+        if (count === 0) {
+            return 1;
+        }
+        return sum / (count * 255);
+    }
+
+    private translateFrameData(
+        source: Uint8ClampedArray,
+        width: number,
+        height: number,
+        shiftX: number,
+        shiftY: number
+    ): Uint8ClampedArray {
+        const output = new Uint8ClampedArray(source.length);
+        for (let y = 0; y < height; y += 1) {
+            const srcY = Math.max(0, Math.min(height - 1, y - shiftY));
+            for (let x = 0; x < width; x += 1) {
+                const srcX = Math.max(0, Math.min(width - 1, x - shiftX));
+                const outIdx = (y * width + x) * 4;
+                const srcIdx = (srcY * width + srcX) * 4;
+                output[outIdx] = source[srcIdx];
+                output[outIdx + 1] = source[srcIdx + 1];
+                output[outIdx + 2] = source[srcIdx + 2];
+                output[outIdx + 3] = source[srcIdx + 3];
+            }
+        }
+        return output;
+    }
+
+    private blendWithReference(
+        source: Uint8ClampedArray,
+        reference: Uint8ClampedArray,
+        strength: number
+    ): Uint8ClampedArray {
+        const normalizedStrength = this.normalizeStabilizationStrength(strength);
+        if (normalizedStrength <= 0 || reference.length !== source.length) {
+            return source;
+        }
+        const output = new Uint8ClampedArray(source.length);
+        const sourceWeight = 1 - normalizedStrength;
+        for (let i = 0; i < source.length; i += 1) {
+            output[i] = this.clamp(
+                source[i] * sourceWeight + reference[i] * normalizedStrength
+            );
+        }
+        return output;
     }
 
     private createUpscaledCanvas(
@@ -1685,9 +2055,14 @@ export class ImagePreprocessor {
         this.tempCanvas = null;
         this.tempContext = null;
         this.resetTemporalDenoiseCache();
+        this.resetMotionStabilizationCache();
     }
 
     private resetTemporalDenoiseCache(): void {
         this.temporalDenoiseCache.clear();
+    }
+
+    private resetMotionStabilizationCache(): void {
+        this.motionStabilizationCache.clear();
     }
 }
