@@ -225,6 +225,40 @@ export interface ImagePreprocessingConfig {
      */
     combinationIncludeInversion?: boolean;
 
+    /**
+     * Explicit list of preprocessing passes to run instead of the combinatorial
+     * system (orthogonalPasses / combinationPasses). When non-empty, all
+     * combinatorial logic is bypassed and only these passes are executed in order.
+     * Each entry is a partial ImagePreprocessingConfig merged on top of the base
+     * config, plus an optional `passName` label and `tryInverted` override.
+     */
+    explicitPasses?: ExplicitPass[];
+
+}
+
+/**
+ * A single explicitly-defined preprocessing pass. Fields that are undefined
+ * inherit from the base ImagePreprocessingConfig. `passName` is used as the
+ * display label in the decoder gallery. `tryInverted` controls whether an
+ * additional inverted variant is produced for this specific pass (overrides
+ * the base config's tryInverted for this pass only).
+ */
+export interface ExplicitPass {
+    passName?: string;
+    grayscale?: boolean;
+    contrastEnhancement?: boolean;
+    contrastFactor?: number;
+    blur?: boolean;
+    blurRadius?: number;
+    sharpen?: boolean;
+    sharpenIntensity?: number;
+    morphClose?: boolean;
+    morphCloseIterations?: number;
+    adaptiveThreshold?: boolean;
+    adaptiveBlockSize?: number;
+    adaptiveOffset?: number;
+    forceInvert?: boolean;
+    tryInverted?: boolean;
 }
 
 export interface ImagePreprocessingCandidateMeta {
@@ -465,6 +499,7 @@ export class ImagePreprocessor {
      */
     public isEnabled(): boolean {
         return !!(
+            (this.config.explicitPasses && this.config.explicitPasses.length > 0) ||
             this.config.contrastEnhancement ||
             this.config.grayscale ||
             this.config.sharpen ||
@@ -1187,6 +1222,28 @@ export class ImagePreprocessor {
     private buildPassDescriptors(
         baseConfig: ImagePreprocessingConfig
     ): ImagePreprocessingPassDescriptor[] {
+        // Explicit pass list bypasses the entire combinatorial system.
+        if (baseConfig.explicitPasses && baseConfig.explicitPasses.length > 0) {
+            return baseConfig.explicitPasses.map((ep, index) => {
+                const { passName, tryInverted, ...overrides } = ep;
+                const merged: ImagePreprocessingConfig = this.normalizeConfig({
+                    ...baseConfig,
+                    ...overrides,
+                    // tryInverted per-pass override; fall back to base config
+                    tryInverted: tryInverted !== undefined ? tryInverted : !!baseConfig.tryInverted,
+                    // Never recurse into explicit passes
+                    explicitPasses: undefined,
+                    multiPass: false,
+                    orthogonalPasses: false,
+                    combinationPasses: false,
+                });
+                return {
+                    config: merged,
+                    passLabel: passName ?? `ep${index + 1}`,
+                };
+            });
+        }
+
         const combinationPassesEnabled = !!baseConfig.combinationPasses;
         const includeInversionInCombinations
             = baseConfig.combinationIncludeInversion === true;
