@@ -115,6 +115,12 @@ export interface QrBounds extends QrDimensions {
     y: number;
 }
 
+/** Defines a point in the decoder frame. */
+export interface QrcodePoint {
+    x: number;
+    y: number;
+}
+
 /** Format of detected code. */
 export class QrcodeResultFormat {
     public readonly format: Html5QrcodeSupportedFormats;
@@ -145,6 +151,17 @@ export interface QrcodeResultDebugData {
 
     /** Name of the decoder that was used for decoding. */
     decoderName?: string;
+
+    /**
+     * Optional decoder-specific metadata. ZXing WASM uses this to expose
+     * DataMatrix position points in the decoded canvas coordinate system.
+     */
+    zxingWasm?: any;
+
+    /**
+     * Optional html5-qrcode frame mapping metadata for UI overlays.
+     */
+    decodeFrame?: any;
 }
 
 /**

@@ -32,6 +32,8 @@ export interface Html5QrcodeShimConfig {
      * Default: false
      */
     tryHarder?: boolean;
+    tryRotate?: boolean;
+    tryDownscale?: boolean;
 
     /**
      * If true, use zxing-wasm (C++ zxing-cpp via WebAssembly) as the primary
@@ -44,6 +46,72 @@ export interface Html5QrcodeShimConfig {
      * Default: false
      */
     useZXingWasm?: boolean;
+
+    /**
+     * Optional flag reserved for a future dedicated DataMatrix DPM mode.
+     *
+     * Phase 1 only accepts and carries this value without changing current
+     * decode behavior.
+     */
+    datamatrixDpmMode?: boolean;
+
+    /**
+     * Optional decode-effort hint reserved for future decoder-side budgets.
+     *
+     * Phase 1 only accepts and carries this value without changing current
+     * decode behavior.
+     */
+    decodingBudget?: "normal" | "slow";
+
+    /**
+     * Enable ZXing-internal denoising. Critical for dot-pattern DataMatrix
+     * (DPM foil packs). Default: false
+     */
+    tryDenoise?: boolean;
+
+    /**
+     * Let ZXing try both the original and inverted image. Fixes packs where
+     * foil reflectance produces reversed effective polarity. Default: false
+     */
+    tryInvert?: boolean;
+    isPure?: boolean;
+    returnErrors?: boolean;
+
+    /**
+     * Prevent ZXing-internal downscale by setting a high threshold.
+     * Use 9999 to disable ZXing's internal 3x downscale for medium ROI.
+     * Default: 500
+     */
+    downscaleThreshold?: number;
+
+    /**
+     * ZXing binarizer to use. "LocalAverage" is the only working binarizer
+     * for dot-pattern DataMatrix. Default: ZXing's default (GlobalHistogram).
+     */
+    binarizer?: string;
+
+    /**
+     * Pre-downscale canvas to this width before passing to ZXing (bilinear
+     * interpolation). 300px merges dot-pattern cells into solid squares.
+     * Default: undefined (no pre-downscale)
+     */
+    maxDecodeWidth?: number;
+    maxNumberOfSymbols?: number;
+
+    /**
+     * JS-side contrast enhancement before ZXing binarization.
+     * Applied at the maxDecodeWidth resolution (300px) via GPU-accelerated
+     * CSS filter. Values >1 boost contrast; 1.5–2.0 useful for foil DPM.
+     * Default: undefined (disabled).
+     */
+    preContrast?: number;
+
+    /**
+     * Minimum scan lines ZXing needs to detect a barcode pattern.
+     * ZXing default is 2. Setting 1 is more permissive for partial/low-contrast
+     * codes. Default: undefined (ZXing default of 2).
+     */
+    minLineCount?: number;
 }
 
 /**
@@ -73,25 +141,48 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         logger: Logger,
         shimConfig?: Html5QrcodeShimConfig) {
         this.verbose = verbose;
-        this.useZXingWasmMode = shimConfig?.useZXingWasm ?? false;
+        const datamatrixDpmMode = shimConfig?.datamatrixDpmMode === true
+            && requestedFormats.length === 1
+            && requestedFormats[0] === Html5QrcodeSupportedFormats.DATA_MATRIX;
+        const effectiveTryHarder = datamatrixDpmMode
+            ? true
+            : (shimConfig?.tryHarder ?? false);
+        const effectiveUseZXingWasm = datamatrixDpmMode
+            ? true
+            : (shimConfig?.useZXingWasm ?? false);
+        this.useZXingWasmMode = effectiveUseZXingWasm;
 
         const zxingConfig: ZXingDecoderConfig = {
-            tryHarder: shimConfig?.tryHarder ?? false
+            tryHarder: effectiveTryHarder
         };
 
         // zxing-wasm path: superior DataMatrix / DPM detection via C++ zxing-cpp.
         // BarcodeDetector is intentionally not combined with zxing-wasm since
         // BarcodeDetector does not support DataMatrix on iOS/Safari anyway.
-        if (shimConfig?.useZXingWasm) {
+        if (effectiveUseZXingWasm) {
             this.primaryDecoder = new ZXingWasmDecoder(
-                requestedFormats, verbose, logger, shimConfig?.tryHarder ?? true);
+                requestedFormats, verbose, logger,
+                effectiveTryHarder,
+                shimConfig?.tryDenoise,
+                shimConfig?.tryInvert,
+                shimConfig?.downscaleThreshold,
+                shimConfig?.binarizer,
+                shimConfig?.maxDecodeWidth,
+                shimConfig?.tryRotate,
+                shimConfig?.tryDownscale,
+                shimConfig?.isPure,
+                shimConfig?.returnErrors,
+                shimConfig?.maxNumberOfSymbols,
+                shimConfig?.preContrast,
+                shimConfig?.minLineCount);
             // Keep ZXing JS as a fallback in case the WASM fails to load.
             this.zxingDecoder = new ZXingHtml5QrcodeDecoder(
                 requestedFormats, verbose, logger, zxingConfig);
             this.secondaryDecoder = this.zxingDecoder;
         }
         // Use BarcodeDetector library if enabled by config and is supported.
-        else if (useBarCodeDetectorIfSupported
+        else if (!datamatrixDpmMode
+                && useBarCodeDetectorIfSupported
                 && BarcodeDetectorDelegate.isSupported()) {
             this.primaryDecoder = new BarcodeDetectorDelegate(
                 requestedFormats, verbose, logger);

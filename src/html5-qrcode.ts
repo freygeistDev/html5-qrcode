@@ -26,7 +26,8 @@ import {
     Html5QrcodeResult,
     isNullOrUndefined,
     QrDimensions,
-    QrDimensionFunction
+    QrDimensionFunction,
+    QrcodeResult
 } from "./core";
 import { Html5QrcodeStrings } from "./strings";
 import { VideoConstraintsUtil } from "./utils";
@@ -49,7 +50,10 @@ import {
     Html5QrcodeScannerState
 } from "./state-manager";
 import {
-    ImagePreprocessingCandidate
+    ImagePreprocessingCandidate,
+    ImagePreprocessingConfig,
+    ImagePreprocessor,
+    PREPROCESSING_PRESETS
 } from "./image-preprocessing";
 
 class Constants extends Html5QrcodeConstants {
@@ -125,6 +129,67 @@ export interface Html5QrcodeConfigs {
      * is true. Example: "/assets/vendor/"
      */
     zxingWasmBasePath?: string | undefined;
+
+    /**
+     * Optional flag reserved for a future dedicated DataMatrix DPM mode.
+     *
+     * Phase 1 only wires this value through configuration so callers can rely
+     * on a stable API before decoder-specific behavior is added.
+     */
+    datamatrixDpmMode?: boolean | undefined;
+
+    /**
+     * Optional decode-effort hint reserved for future decoder-side budgets.
+     *
+     * Phase 1 only stores and forwards this value without changing current
+     * decode behavior.
+     */
+    decodingBudget?: Html5QrcodeDecodingBudget | undefined;
+
+    /**
+     * Enable ZXing-internal denoising (tryDenoise). Critical for dot-pattern
+     * DataMatrix on foil packs. Default: false
+     */
+    tryDenoise?: boolean | undefined;
+    tryRotate?: boolean | undefined;
+    tryDownscale?: boolean | undefined;
+
+    /**
+     * Let ZXing try both original and inverted image. Fixes packs where foil
+     * reflectance produces reversed effective polarity. Default: false
+     */
+    tryInvert?: boolean | undefined;
+    isPure?: boolean | undefined;
+    returnErrors?: boolean | undefined;
+
+    /**
+     * Prevent ZXing's internal downscale. Set to 9999 to disable the 3x
+     * downscale that destroys medium-ROI images. Default: 500
+     */
+    downscaleThreshold?: number | undefined;
+
+    /**
+     * ZXing binarizer. "LocalAverage" is the only working binarizer for
+     * dot-pattern DataMatrix. Default: ZXing default.
+     */
+    binarizer?: string | undefined;
+
+    /**
+     * Pre-downscale canvas width before ZXing (bilinear). 300px merges
+     * dot-pattern cells into solid squares. Default: undefined.
+     */
+    maxDecodeWidth?: number | undefined;
+    maxNumberOfSymbols?: number | undefined;
+
+    /**
+     * Optional direct zxing-wasm preprocessing mode.
+     *
+     * "invert" mirrors the standalone ZXing WASM benchmark path: decode a
+     * single red-channel inverted candidate without the full html5-qrcode
+     * image preprocessor. This keeps the DataMatrix path light enough for
+     * older phones.
+     */
+    zxingWasmProcessing?: Html5QrcodeZxingWasmProcessing | undefined;
 }
 
 /**
@@ -174,9 +239,18 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
      * @internal
      */
     debugCandidateMode?: Html5QrcodeDebugCandidateMode | undefined;
+
+    /**
+     * Optional normalized decoder crop region for camera scanning.
+     *
+     * When set, the camera scan loop decodes only this region of the
+     * viewfinder instead of the centered `qrbox` region.
+     */
+    scanRegion?: Html5QrcodeScanRegion | undefined;
 }
 
 export type Html5QrcodeDebugCandidateMode = "attempted" | "all";
+export type Html5QrcodeZxingWasmProcessing = "raw" | "invert";
 
 export interface Html5QrcodeDebugMeta {
     frameId: number;
@@ -212,6 +286,23 @@ export interface Html5QrcodeAutoFocusPoint {
     x: number;
     y: number;
 }
+
+/**
+ * Normalized scan region where `0 <= x <= 1`, `0 <= y <= 1`,
+ * `0 < width <= 1` and `0 < height <= 1`.
+ *
+ * The decoder crops to this region before decoding. Unlike `qrbox`, this is
+ * not tied to the shaded UI box and can be positioned freely within the
+ * viewfinder.
+ */
+export interface Html5QrcodeScanRegion {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export type Html5QrcodeDecodingBudget = "normal" | "slow";
 
 /**
  * Configuration type for scanning QR code with camera.
@@ -327,6 +418,31 @@ export interface Html5QrcodeCameraScanConfig {
      * Note: default value is `350`.
      */
     autoFocusRetryIntervalMs?: number | undefined;
+
+    /**
+     * Optional normalized decoder crop region.
+     *
+     * If set, the decoder only scans this region of the viewfinder.
+     * Unlike `qrbox`, this region is not required to be centered.
+     */
+    scanRegion?: Html5QrcodeScanRegion | undefined;
+
+    /**
+     * Optional flag reserved for a future dedicated DataMatrix DPM mode.
+     *
+     * Phase 1 only wires this value through configuration so the integration
+     * layer can begin using a stable API before decoder-specific behavior is
+     * added.
+     */
+    datamatrixDpmMode?: boolean | undefined;
+
+    /**
+     * Optional decode-effort hint reserved for future decoder-side budgets.
+     *
+     * Phase 1 only stores and forwards this value without changing current
+     * decode behavior.
+     */
+    decodingBudget?: Html5QrcodeDecodingBudget | undefined;
 }
 
 /**
@@ -349,6 +465,9 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
     public readonly autoFocusDistanceRatio: number | undefined;
     public readonly autoFocusMaxRetries: number;
     public readonly autoFocusRetryIntervalMs: number;
+    public readonly scanRegion: Html5QrcodeScanRegion | undefined;
+    public readonly datamatrixDpmMode: boolean;
+    public readonly decodingBudget: Html5QrcodeDecodingBudget;
 
     private logger: Logger;
 
@@ -362,6 +481,9 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
         this.autoFocusMaxRetries = Constants.DEFAULT_AUTO_FOCUS_MAX_RETRIES;
         this.autoFocusRetryIntervalMs
             = Constants.DEFAULT_AUTO_FOCUS_RETRY_INTERVAL_MS;
+        this.scanRegion = undefined;
+        this.datamatrixDpmMode = false;
+        this.decodingBudget = "normal";
         if (!config) {
             this.disableFlip = Constants.DEFAULT_DISABLE_FLIP;
         } else {
@@ -391,6 +513,13 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
             this.autoFocusRetryIntervalMs
                 = InternalHtml5QrcodeConfig.normalizeAutoFocusRetryIntervalMs(
                     config.autoFocusRetryIntervalMs);
+            this.scanRegion
+                = InternalHtml5QrcodeConfig.normalizeScanRegion(
+                    config.scanRegion);
+            this.datamatrixDpmMode = config.datamatrixDpmMode === true;
+            this.decodingBudget
+                = InternalHtml5QrcodeConfig.normalizeDecodingBudget(
+                    config.decodingBudget);
         }
     }
 
@@ -476,6 +605,48 @@ class InternalHtml5QrcodeConfig implements Html5QrcodeCameraScanConfig {
         }
 
         return Math.max(50, Math.floor(autoFocusRetryIntervalMs));
+    }
+
+    private static normalizeScanRegion(
+        scanRegion: Html5QrcodeScanRegion | undefined)
+            : Html5QrcodeScanRegion | undefined {
+        if (!scanRegion) {
+            return undefined;
+        }
+
+        const values = [
+            scanRegion.x,
+            scanRegion.y,
+            scanRegion.width,
+            scanRegion.height
+        ];
+        if (values.some((value) => typeof value !== "number" || isNaN(value))) {
+            return undefined;
+        }
+
+        const clipNormalizedValue = (value: number) => {
+            return Math.max(0, Math.min(1, value));
+        };
+
+        const x = clipNormalizedValue(scanRegion.x);
+        const y = clipNormalizedValue(scanRegion.y);
+        const maxWidth = Math.max(0.01, 1 - x);
+        const maxHeight = Math.max(0.01, 1 - y);
+        const width = Math.max(0.01, Math.min(maxWidth, scanRegion.width));
+        const height = Math.max(0.01, Math.min(maxHeight, scanRegion.height));
+
+        return {
+            x: x,
+            y: y,
+            width: width,
+            height: height
+        };
+    }
+
+    private static normalizeDecodingBudget(
+        decodingBudget: Html5QrcodeDecodingBudget | undefined)
+            : Html5QrcodeDecodingBudget {
+        return decodingBudget === "slow" ? "slow" : "normal";
     }
 
     public isMediaStreamConstraintsValid(): boolean {
@@ -583,6 +754,7 @@ export class Html5Qrcode {
         ((canvas: HTMLCanvasElement, meta?: Html5QrcodeDebugMeta) => void)
         | undefined;
     private debugCandidateMode: Html5QrcodeDebugCandidateMode = "attempted";
+    private zxingWasmProcessing: Html5QrcodeZxingWasmProcessing = "raw";
     private debugFrameId: number = 0;
     private rotationAttemptCursor: number = 0;
     private currentFrameSourceRegion: VideoSourceRegionMapping | null = null;
@@ -639,21 +811,47 @@ export class Html5Qrcode {
             configureZXingWasmPath(configObject.zxingWasmBasePath);
         }
 
+        const datamatrixDpmModeEnabled
+            = configObject?.datamatrixDpmMode === true
+                && this.isDataMatrixOnlyFormatsConfig(configObject);
+        const effectiveTryHarder = datamatrixDpmModeEnabled
+            ? true
+            : (configObject?.tryHarder ?? false);
+        const effectiveUseZXingWasm = datamatrixDpmModeEnabled
+            ? true
+            : (configObject?.useZXingWasm ?? false);
+
         this.qrcode = new Html5QrcodeShim(
             this.getSupportedFormats(configOrVerbosityFlag),
-            this.getUseBarCodeDetectorIfSupported(configObject),
+            datamatrixDpmModeEnabled
+                ? false
+                : this.getUseBarCodeDetectorIfSupported(configObject),
             this.verbose,
             this.logger,
             {
-                tryHarder: configObject?.tryHarder ?? false,
-                useZXingWasm: configObject?.useZXingWasm ?? false,
+                tryHarder: effectiveTryHarder,
+                useZXingWasm: effectiveUseZXingWasm,
+                datamatrixDpmMode: datamatrixDpmModeEnabled,
+                decodingBudget: configObject?.decodingBudget ?? "normal",
+                tryDenoise: configObject?.tryDenoise,
+                tryRotate: configObject?.tryRotate,
+                tryDownscale: configObject?.tryDownscale,
+                tryInvert: configObject?.tryInvert,
+                isPure: configObject?.isPure,
+                returnErrors: configObject?.returnErrors,
+                downscaleThreshold: configObject?.downscaleThreshold,
+                binarizer: configObject?.binarizer,
+                maxDecodeWidth: configObject?.maxDecodeWidth,
+                maxNumberOfSymbols: configObject?.maxNumberOfSymbols,
             });
 
         // Set image preprocessor if provided
-        this.imagePreprocessor = configObject?.imagePreprocessor ?? null;
+        this.imagePreprocessor = this.buildEffectiveImagePreprocessor(configObject);
         this.debugCallback = configObject?.debugCallback;
         this.debugCandidateMode = Html5Qrcode.normalizeDebugCandidateMode(
             configObject?.debugCandidateMode);
+        this.zxingWasmProcessing = Html5Qrcode.normalizeZxingWasmProcessing(
+            configObject?.zxingWasmProcessing);
 
         this.foreverScanTimeout;
         this.shouldScan = true;
@@ -664,6 +862,68 @@ export class Html5Qrcode {
         mode: Html5QrcodeDebugCandidateMode | undefined)
             : Html5QrcodeDebugCandidateMode {
         return mode === "all" ? "all" : "attempted";
+    }
+
+    private static normalizeZxingWasmProcessing(
+        mode: Html5QrcodeZxingWasmProcessing | undefined)
+            : Html5QrcodeZxingWasmProcessing {
+        return mode === "invert" ? "invert" : "raw";
+    }
+
+    private buildEffectiveImagePreprocessor(
+        configObject: Html5QrcodeFullConfig | undefined): any | null {
+        const rawImagePreprocessor = configObject?.imagePreprocessor ?? null;
+        const datamatrixDpmModeEnabled
+            = configObject?.datamatrixDpmMode === true
+                && this.isDataMatrixOnlyFormatsConfig(configObject);
+        if (!datamatrixDpmModeEnabled) {
+            return rawImagePreprocessor;
+        }
+
+        const dpmConfig = this.buildDpmImagePreprocessingConfig(
+            rawImagePreprocessor,
+            configObject?.decodingBudget ?? "normal");
+        if (rawImagePreprocessor
+            && typeof rawImagePreprocessor.getConfig === "function"
+            && typeof rawImagePreprocessor.setConfig === "function") {
+            rawImagePreprocessor.setConfig(dpmConfig);
+            return rawImagePreprocessor;
+        }
+
+        return new ImagePreprocessor(dpmConfig);
+    }
+
+    private isDataMatrixOnlyFormatsConfig(
+        configObject: Html5QrcodeFullConfig | undefined): boolean {
+        if (!configObject?.formatsToSupport
+            || !Array.isArray(configObject.formatsToSupport)
+            || configObject.formatsToSupport.length !== 1) {
+            return false;
+        }
+
+        return configObject.formatsToSupport[0]
+            === Html5QrcodeSupportedFormats.DATA_MATRIX;
+    }
+
+    private buildDpmImagePreprocessingConfig(
+        rawImagePreprocessor: any | null,
+        decodingBudget: Html5QrcodeDecodingBudget): ImagePreprocessingConfig {
+        let baseConfig: ImagePreprocessingConfig = {};
+        if (rawImagePreprocessor
+            && typeof rawImagePreprocessor.getConfig === "function") {
+            try {
+                baseConfig = rawImagePreprocessor.getConfig() || {};
+            } catch (_) {
+                baseConfig = {};
+            }
+        }
+
+        return {
+            ...baseConfig,
+            ...PREPROCESSING_PRESETS.DPM,
+            datamatrixDpmMode: true,
+            decodingBudget: decodingBudget === "slow" ? "slow" : "normal"
+        };
     }
 
     //#region start()
@@ -1423,9 +1683,15 @@ export class Html5Qrcode {
             height: viewfinderHeight
         };
 
-        const qrRegion = shouldShadingBeApplied
+        const shadedRegion = shouldShadingBeApplied
             ? this.getShadedRegionBounds(viewfinderWidth, viewfinderHeight, qrDimensions)
             : defaultQrRegion;
+        const qrRegion = internalConfig.scanRegion
+            ? this.getConfiguredScanRegionBounds(
+                viewfinderWidth,
+                viewfinderHeight,
+                internalConfig.scanRegion)
+            : shadedRegion;
  
         const canvasElement = this.createCanvasElement(
             qrRegion.width, qrRegion.height);
@@ -1546,13 +1812,66 @@ export class Html5Qrcode {
             }
         }
 
-        return [{
+        const directCandidate = this.createDirectZxingWasmCandidate();
+        if (directCandidate) {
+            return [directCandidate];
+        }
+
+        return [this.createRawDecodeCandidate()];
+    }
+
+    private createRawDecodeCandidate(): DecodeCanvasCandidate {
+        return {
             canvas: this.canvasElement!,
             variantLabel: "raw",
             inverted: false,
             rotationAngle: 0,
             preprocessingSnapshot: undefined
-        }];
+        };
+    }
+
+    private createDirectZxingWasmCandidate(): DecodeCanvasCandidate | null {
+        if (this.zxingWasmProcessing !== "invert" || !this.canvasElement) {
+            return null;
+        }
+
+        const sourceCanvas = this.canvasElement;
+        const directCanvas = document.createElement("canvas");
+        directCanvas.width = sourceCanvas.width;
+        directCanvas.height = sourceCanvas.height;
+
+        const directContext = directCanvas.getContext("2d", {
+            willReadFrequently: true
+        } as any) as CanvasRenderingContext2D | null;
+        if (!directContext) {
+            return this.createRawDecodeCandidate();
+        }
+
+        directContext.drawImage(sourceCanvas, 0, 0);
+        const imageData = directContext.getImageData(
+            0, 0, directCanvas.width, directCanvas.height);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+            // Mirrors zxing-wasm-mobile.html processing=invert exactly enough:
+            // derive grayscale from the red channel and invert it.
+            const value = 255 - data[i];
+            data[i] = value;
+            data[i + 1] = value;
+            data[i + 2] = value;
+            data[i + 3] = 255;
+        }
+        directContext.putImageData(imageData, 0, 0);
+
+        return {
+            canvas: directCanvas,
+            variantLabel: "zxing-wasm direct invert",
+            inverted: true,
+            rotationAngle: 0,
+            preprocessingSnapshot: {
+                enabled: true,
+                directMode: "zxing-wasm-processing-invert"
+            }
+        };
     }
 
     /**
@@ -1605,6 +1924,10 @@ export class Html5Qrcode {
 
             try {
                 const result = await this.qrcode.decodeAsync(candidate.canvas);
+                this.attachDecodeFrameDebugData(
+                    result,
+                    candidate.canvas,
+                    candidateMeta);
                 this.emitDebugCanvas(candidate.canvas, {
                     ...candidateMeta,
                     successful: true
@@ -1626,6 +1949,23 @@ export class Html5Qrcode {
         qrCodeErrorCallback(
             errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
         return false;
+    }
+
+    private attachDecodeFrameDebugData(
+        result: QrcodeResult,
+        canvas: HTMLCanvasElement,
+        candidateMeta: any): void {
+        if (!result) {
+            return;
+        }
+
+        const debugData = result.debugData || {};
+        debugData.decodeFrame = {
+            ...(candidateMeta || {}),
+            width: canvas.width,
+            height: canvas.height
+        };
+        result.debugData = debugData;
     }
 
     private buildDecodeAttempts(
@@ -1866,9 +2206,16 @@ export class Html5Qrcode {
         const sourceRegion = this.computeVideoSourceRegion(videoElement);
         this.currentFrameSourceRegion = sourceRegion;
 
-        // Only decode the relevant area, ignore the shaded area,
-        // More reference:
-        // https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/drawImage
+        // Draw at native video resolution so maxDecodeWidth can downscale from
+        // the full source pixels (e.g. 431→300px via bilinear). CSS pixel
+        // dimensions (qrRegion.width ~236px) would bypass the downscale step.
+        const nativeW = Math.round(sourceRegion.sWidth);
+        const nativeH = Math.round(sourceRegion.sHeight);
+        if (this.context!.canvas.width !== nativeW
+                || this.context!.canvas.height !== nativeH) {
+            this.context!.canvas.width = nativeW;
+            this.context!.canvas.height = nativeH;
+        }
         this.context!.drawImage(
             videoElement,
             /* sx= */ sourceRegion.sx,
@@ -1876,9 +2223,9 @@ export class Html5Qrcode {
             /* sWidth= */ sourceRegion.sWidth,
             /* sHeight= */ sourceRegion.sHeight,
             /* dx= */ 0,
-            /* dy= */  0,
-            /* dWidth= */ this.qrRegion.width,
-            /* dHeight= */ this.qrRegion.height);
+            /* dy= */ 0,
+            /* dWidth= */ nativeW,
+            /* dHeight= */ nativeH);
 
         const triggerNextScan = () => {
             this.foreverScanTimeout = setTimeout(() => {
@@ -2356,6 +2703,25 @@ export class Html5Qrcode {
             y: (height - qrboxSize.height) / 2,
             width: qrboxSize.width,
             height: qrboxSize.height
+        };
+    }
+
+    private getConfiguredScanRegionBounds(
+        width: number,
+        height: number,
+        scanRegion: Html5QrcodeScanRegion): QrcodeRegionBounds {
+        const x = Math.max(0, Math.min(width - 1, Math.floor(scanRegion.x * width)));
+        const y = Math.max(0, Math.min(height - 1, Math.floor(scanRegion.y * height)));
+        const requestedWidth = Math.max(1, Math.round(scanRegion.width * width));
+        const requestedHeight = Math.max(1, Math.round(scanRegion.height * height));
+        const regionWidth = Math.max(1, Math.min(requestedWidth, width - x));
+        const regionHeight = Math.max(1, Math.min(requestedHeight, height - y));
+
+        return {
+            x: x,
+            y: y,
+            width: regionWidth,
+            height: regionHeight
         };
     }
 

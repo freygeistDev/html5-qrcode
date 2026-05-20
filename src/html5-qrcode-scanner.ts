@@ -30,6 +30,8 @@ import {
     Html5Qrcode,
     Html5QrcodeConfigs,
     Html5QrcodeCameraScanConfig,
+    Html5QrcodeDecodingBudget,
+    Html5QrcodeScanRegion,
     Html5QrcodeFullConfig,
     Html5QrcodeDebugMeta,
     Html5QrcodeDebugCandidateMode,
@@ -250,6 +252,34 @@ export interface Html5QrcodeScannerConfig
      * Note: default is "hd" (1280x720).
      */
     videoResolution?: "sd" | "hd" | "fullHd" | "4k" | undefined;
+
+    /**
+     * Optional normalized decoder crop region.
+     *
+     * If set, the decoder scans only this region of the viewfinder.
+     */
+    scanRegion?: Html5QrcodeScanRegion | undefined;
+
+    /**
+     * Optional flag reserved for a future dedicated DataMatrix DPM mode.
+     */
+    datamatrixDpmMode?: boolean | undefined;
+
+    /**
+     * Optional decode-effort hint reserved for future decoder-side budgets.
+     */
+    decodingBudget?: Html5QrcodeDecodingBudget | undefined;
+    tryDenoise?: boolean | undefined;
+    tryRotate?: boolean | undefined;
+    tryDownscale?: boolean | undefined;
+    tryInvert?: boolean | undefined;
+    isPure?: boolean | undefined;
+    returnErrors?: boolean | undefined;
+    downscaleThreshold?: number | undefined;
+    binarizer?: string | undefined;
+    maxDecodeWidth?: number | undefined;
+    maxNumberOfSymbols?: number | undefined;
+    zxingWasmProcessing?: "raw" | "invert" | undefined;
 }
 
 function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
@@ -266,7 +296,10 @@ function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
         autoFocusDistance: config.autoFocusDistance,
         autoFocusDistanceRatio: config.autoFocusDistanceRatio,
         autoFocusMaxRetries: config.autoFocusMaxRetries,
-        autoFocusRetryIntervalMs: config.autoFocusRetryIntervalMs
+        autoFocusRetryIntervalMs: config.autoFocusRetryIntervalMs,
+        scanRegion: config.scanRegion,
+        datamatrixDpmMode: config.datamatrixDpmMode,
+        decodingBudget: config.decodingBudget
     };
 }
 
@@ -283,6 +316,20 @@ function toHtml5QrcodeFullConfig(
         tryHarder: config.tryHarder,
         useZXingWasm: config.useZXingWasm,
         zxingWasmBasePath: config.zxingWasmBasePath,
+        datamatrixDpmMode: config.datamatrixDpmMode,
+        decodingBudget: config.decodingBudget,
+        tryDenoise: config.tryDenoise,
+        tryRotate: config.tryRotate,
+        tryDownscale: config.tryDownscale,
+        tryInvert: config.tryInvert,
+        isPure: config.isPure,
+        returnErrors: config.returnErrors,
+        downscaleThreshold: config.downscaleThreshold,
+        binarizer: config.binarizer,
+        maxDecodeWidth: config.maxDecodeWidth,
+        maxNumberOfSymbols: config.maxNumberOfSymbols,
+        zxingWasmProcessing: config.zxingWasmProcessing,
+        scanRegion: config.scanRegion,
         imagePreprocessor: imagePreprocessor ?? undefined,
         debugCallback: config.debugCallback,
         debugCandidateMode: config.debugCandidateMode

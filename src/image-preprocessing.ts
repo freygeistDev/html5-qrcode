@@ -15,6 +15,22 @@
  */
 export interface ImagePreprocessingConfig {
     /**
+     * Enable dedicated DataMatrix DPM candidate generation.
+     * When active and no explicitPasses are provided, a fixed DPM-oriented
+     * candidate stack is used instead of the generic pass builder.
+     * Default: false
+     */
+    datamatrixDpmMode?: boolean;
+
+    /**
+     * Decode-effort hint for DPM mode candidate generation.
+     * - "normal": minimal DPM candidate stack
+     * - "slow": additional DPM recovery candidate
+     * Default: "normal"
+     */
+    decodingBudget?: "normal" | "slow";
+
+    /**
      * Enable contrast enhancement.
      * Improves detection of low-contrast codes.
      * Default: false
@@ -294,6 +310,8 @@ interface MotionStabilizationState {
  * Default preprocessing configuration optimized for difficult codes.
  */
 export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
+    datamatrixDpmMode: false,
+    decodingBudget: "normal",
     contrastEnhancement: false,
     contrastFactor: 1.5,
     grayscale: true,
@@ -499,6 +517,7 @@ export class ImagePreprocessor {
      */
     public isEnabled(): boolean {
         return !!(
+            this.config.datamatrixDpmMode ||
             (this.config.explicitPasses && this.config.explicitPasses.length > 0) ||
             this.config.contrastEnhancement ||
             this.config.grayscale ||
@@ -670,6 +689,8 @@ export class ImagePreprocessor {
         config: ImagePreprocessingConfig
     ): ImagePreprocessingConfig {
         return {
+            datamatrixDpmMode: !!config.datamatrixDpmMode,
+            decodingBudget: config.decodingBudget === "slow" ? "slow" : "normal",
             contrastEnhancement: !!config.contrastEnhancement,
             contrastFactor: typeof config.contrastFactor === "number"
                 ? config.contrastFactor
@@ -859,6 +880,8 @@ export class ImagePreprocessor {
         };
         merged.rotationPasses = !!merged.rotationPasses;
         merged.rotationAngles = this.normalizeRotationAngles(merged.rotationAngles);
+        merged.datamatrixDpmMode = merged.datamatrixDpmMode === true;
+        merged.decodingBudget = merged.decodingBudget === "slow" ? "slow" : "normal";
         merged.temporalDenoise = !!merged.temporalDenoise;
         merged.temporalDenoiseStrength = this.normalizeTemporalDenoiseStrength(
             merged.temporalDenoiseStrength
@@ -1244,6 +1267,10 @@ export class ImagePreprocessor {
             });
         }
 
+        if (baseConfig.datamatrixDpmMode) {
+            return this.buildDpmModePassDescriptors(baseConfig);
+        }
+
         const combinationPassesEnabled = !!baseConfig.combinationPasses;
         const includeInversionInCombinations
             = baseConfig.combinationIncludeInversion === true;
@@ -1368,6 +1395,52 @@ export class ImagePreprocessor {
             ),
             true
         );
+
+        return descriptors;
+    }
+
+    private buildDpmModePassDescriptors(
+        baseConfig: ImagePreprocessingConfig
+    ): ImagePreprocessingPassDescriptor[] {
+        const descriptors: ImagePreprocessingPassDescriptor[] = [];
+        const budget = baseConfig.decodingBudget === "slow" ? "slow" : "normal";
+
+        const dpmBase = this.normalizeConfig({
+            ...baseConfig,
+            ...PREPROCESSING_PRESETS.DPM,
+            datamatrixDpmMode: true,
+            decodingBudget: budget,
+            multiPass: false,
+            orthogonalPasses: false,
+            combinationPasses: false,
+            rotationPasses: false
+        });
+        descriptors.push({
+            config: dpmBase,
+            passLabel: "dpm-base"
+        });
+
+        if (budget === "slow") {
+            const dpmRelief = this.normalizeConfig({
+                ...dpmBase,
+                blur: true,
+                blurRadius: 0.7,
+                sharpen: true,
+                sharpenIntensity: 0.65,
+                morphClose: true,
+                morphCloseIterations: 1,
+                tryInverted: false,
+                forceInvert: false,
+                multiPass: false,
+                orthogonalPasses: false,
+                combinationPasses: false,
+                rotationPasses: false
+            });
+            descriptors.push({
+                config: dpmRelief,
+                passLabel: "dpm-relief"
+            });
+        }
 
         return descriptors;
     }
