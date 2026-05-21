@@ -190,6 +190,13 @@ export interface Html5QrcodeConfigs {
      * older phones.
      */
     zxingWasmProcessing?: Html5QrcodeZxingWasmProcessing | undefined;
+
+    /**
+     * When true (default), direct zxing-wasm candidates (invert/raw/dual) are
+     * decoded in addition to image-preprocessor candidates. When false, an
+     * enabled preprocessor replaces the direct wasm path (legacy behaviour).
+     */
+    combineZxingWasmProcessing?: boolean | undefined;
 }
 
 /**
@@ -250,7 +257,7 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
 }
 
 export type Html5QrcodeDebugCandidateMode = "attempted" | "all";
-export type Html5QrcodeZxingWasmProcessing = "raw" | "invert";
+export type Html5QrcodeZxingWasmProcessing = "raw" | "invert" | "dual";
 
 export interface Html5QrcodeDebugMeta {
     frameId: number;
@@ -259,6 +266,8 @@ export interface Html5QrcodeDebugMeta {
     variantLabel: string;
     inverted: boolean;
     rotationAngle?: number;
+    perspectiveFactor?: number;
+    perspectiveAxis?: "horizontal" | "vertical";
     preprocessingSnapshot?: any;
     attempted?: boolean;
     successful?: boolean;
@@ -695,6 +704,8 @@ interface DecodeCanvasCandidate {
     variantLabel: string;
     inverted: boolean;
     rotationAngle?: number;
+    perspectiveFactor?: number;
+    perspectiveAxis?: "horizontal" | "vertical";
     preprocessingSnapshot?: any;
 }
 
@@ -755,6 +766,7 @@ export class Html5Qrcode {
         | undefined;
     private debugCandidateMode: Html5QrcodeDebugCandidateMode = "attempted";
     private zxingWasmProcessing: Html5QrcodeZxingWasmProcessing = "raw";
+    private combineZxingWasmProcessing: boolean = true;
     private debugFrameId: number = 0;
     private rotationAttemptCursor: number = 0;
     private currentFrameSourceRegion: VideoSourceRegionMapping | null = null;
@@ -768,7 +780,7 @@ export class Html5Qrcode {
     /** @hidden */
     public isScanning: boolean = false;
 
-    private static readonly MAX_ROTATION_CANDIDATES_PER_FRAME = 2;
+    private static readonly MAX_ROTATION_CANDIDATES_PER_FRAME = 4;
 
     /**
      * Initialize the code scanner.
@@ -852,6 +864,8 @@ export class Html5Qrcode {
             configObject?.debugCandidateMode);
         this.zxingWasmProcessing = Html5Qrcode.normalizeZxingWasmProcessing(
             configObject?.zxingWasmProcessing);
+        this.combineZxingWasmProcessing
+            = configObject?.combineZxingWasmProcessing !== false;
 
         this.foreverScanTimeout;
         this.shouldScan = true;
@@ -867,7 +881,10 @@ export class Html5Qrcode {
     private static normalizeZxingWasmProcessing(
         mode: Html5QrcodeZxingWasmProcessing | undefined)
             : Html5QrcodeZxingWasmProcessing {
-        return mode === "invert" ? "invert" : "raw";
+        if (mode === "invert" || mode === "dual") {
+            return mode;
+        }
+        return "raw";
     }
 
     private buildEffectiveImagePreprocessor(
@@ -1762,54 +1779,80 @@ export class Html5Qrcode {
      * Get the list of canvases to decode (preprocessed variants if enabled).
      */
     private getCanvasesForDecode(): DecodeCanvasCandidate[] {
-        if (this.imagePreprocessor && this.imagePreprocessor.isEnabled()) {
-            try {
-                if (typeof this.imagePreprocessor.processWithMetadata
-                    === "function") {
-                    const processedWithMeta:
-                        Array<ImagePreprocessingCandidate>
-                        = this.imagePreprocessor.processWithMetadata(
-                            this.canvasElement!);
-                    if (processedWithMeta && processedWithMeta.length > 0) {
-                        return processedWithMeta.map((candidate, index) => {
-                            const meta = candidate.meta || (<any>{});
-                            return {
-                                canvas: candidate.canvas,
-                                variantLabel:
-                                    typeof meta.variantLabel === "string"
-                                        && meta.variantLabel.trim() !== ""
-                                        ? meta.variantLabel
-                                        : `candidate ${index + 1}`,
-                                inverted: !!meta.inverted,
-                                rotationAngle: typeof meta.rotationAngle === "number"
-                                    ? meta.rotationAngle
-                                    : 0,
-                                preprocessingSnapshot: meta.preprocessingSnapshot
-                            };
-                        });
-                    }
-                }
+        const wasmDirectCandidates = this.combineZxingWasmProcessing
+            ? this.getDirectZxingWasmCandidates()
+            : [];
+        const preprocessingCandidates = this.getPreprocessingCandidates();
 
-                const processed = this.imagePreprocessor.process(
-                    this.canvasElement!);
-                if (processed && processed.length > 0) {
-                    return processed.map(
-                        (canvas: HTMLCanvasElement, index: number) => {
-                            return {
-                                canvas: canvas,
-                                variantLabel: `candidate ${index + 1}`,
-                                inverted: false,
-                                rotationAngle: 0,
-                                preprocessingSnapshot: undefined
-                            };
-                        });
-                }
-            } catch (error) {
-                if (this.verbose) {
-                    this.logger.logError(
-                        `Image preprocessing failed: ${error}`);
-                }
+        if (preprocessingCandidates.length > 0) {
+            let merged = wasmDirectCandidates.concat(preprocessingCandidates);
+            if (this.shouldAppendWasmInvertPerCandidate()) {
+                merged = this.appendWasmInvertVariants(merged);
             }
+            return merged;
+        }
+
+        if (wasmDirectCandidates.length > 0) {
+            return wasmDirectCandidates;
+        }
+
+        return [this.createRawDecodeCandidate()];
+    }
+
+    private shouldAppendWasmInvertPerCandidate(): boolean {
+        return this.combineZxingWasmProcessing
+            && (this.zxingWasmProcessing === "invert"
+                || this.zxingWasmProcessing === "dual");
+    }
+
+    /**
+     * Adds zxing-wasm direct-invert decode attempts for every candidate canvas
+     * (combination/multi-pass/rotation variants), not only the raw camera frame.
+     */
+    private appendWasmInvertVariants(
+        candidates: DecodeCanvasCandidate[]
+    ): DecodeCanvasCandidate[] {
+        const expanded: DecodeCanvasCandidate[] = [];
+        candidates.forEach((candidate) => {
+            expanded.push(candidate);
+            if (this.isZxingWasmInvertCandidate(candidate)) {
+                return;
+            }
+            const invertCandidate = this.createZxingWasmInvertCandidateFromCanvas(
+                candidate.canvas,
+                `${candidate.variantLabel} + wasm invert`,
+                Object.assign({}, candidate.preprocessingSnapshot || {}, {
+                    directMode: "zxing-wasm-processing-invert",
+                    parentVariant: candidate.variantLabel
+                }));
+            if (invertCandidate) {
+                expanded.push(invertCandidate);
+            }
+        });
+        return expanded;
+    }
+
+    private isZxingWasmInvertCandidate(
+        candidate: DecodeCanvasCandidate
+    ): boolean {
+        const snapshot = candidate.preprocessingSnapshot;
+        return !!(
+            snapshot
+            && snapshot.directMode === "zxing-wasm-processing-invert"
+        );
+    }
+
+    /**
+     * Direct zxing-wasm invert/raw candidates (lightweight foil path).
+     */
+    private getDirectZxingWasmCandidates(): DecodeCanvasCandidate[] {
+        if (this.zxingWasmProcessing === "dual") {
+            const directCandidate = this.createDirectZxingWasmCandidate();
+            const candidates = [this.createRawDecodeCandidate()];
+            if (directCandidate) {
+                candidates.unshift(directCandidate);
+            }
+            return candidates;
         }
 
         const directCandidate = this.createDirectZxingWasmCandidate();
@@ -1817,7 +1860,74 @@ export class Html5Qrcode {
             return [directCandidate];
         }
 
-        return [this.createRawDecodeCandidate()];
+        return [];
+    }
+
+    /**
+     * Canvas candidates from the optional image preprocessor (multi-pass etc.).
+     */
+    private getPreprocessingCandidates(): DecodeCanvasCandidate[] {
+        if (!this.imagePreprocessor || !this.imagePreprocessor.isEnabled()) {
+            return [];
+        }
+
+        try {
+            if (typeof this.imagePreprocessor.processWithMetadata
+                === "function") {
+                const processedWithMeta:
+                    Array<ImagePreprocessingCandidate>
+                    = this.imagePreprocessor.processWithMetadata(
+                        this.canvasElement!);
+                if (processedWithMeta && processedWithMeta.length > 0) {
+                    return processedWithMeta.map((candidate, index) => {
+                        const meta = candidate.meta || (<any>{});
+                        return {
+                            canvas: candidate.canvas,
+                            variantLabel:
+                                typeof meta.variantLabel === "string"
+                                    && meta.variantLabel.trim() !== ""
+                                    ? meta.variantLabel
+                                    : `candidate ${index + 1}`,
+                            inverted: !!meta.inverted,
+                            rotationAngle: typeof meta.rotationAngle === "number"
+                                ? meta.rotationAngle
+                                : 0,
+                            perspectiveFactor: typeof meta.perspectiveFactor === "number"
+                                ? meta.perspectiveFactor
+                                : 0,
+                            perspectiveAxis: meta.perspectiveAxis === "vertical"
+                                ? "vertical"
+                                : (meta.perspectiveAxis === "horizontal"
+                                    ? "horizontal"
+                                    : undefined),
+                            preprocessingSnapshot: meta.preprocessingSnapshot
+                        };
+                    });
+                }
+            }
+
+            const processed = this.imagePreprocessor.process(
+                this.canvasElement!);
+            if (processed && processed.length > 0) {
+                return processed.map(
+                    (canvas: HTMLCanvasElement, index: number) => {
+                        return {
+                            canvas: canvas,
+                            variantLabel: `candidate ${index + 1}`,
+                            inverted: false,
+                            rotationAngle: 0,
+                            preprocessingSnapshot: undefined
+                        };
+                    });
+            }
+        } catch (error) {
+            if (this.verbose) {
+                this.logger.logError(
+                    `Image preprocessing failed: ${error}`);
+            }
+        }
+
+        return [];
     }
 
     private createRawDecodeCandidate(): DecodeCanvasCandidate {
@@ -1831,11 +1941,32 @@ export class Html5Qrcode {
     }
 
     private createDirectZxingWasmCandidate(): DecodeCanvasCandidate | null {
-        if (this.zxingWasmProcessing !== "invert" || !this.canvasElement) {
+        if (
+            (this.zxingWasmProcessing !== "invert"
+                && this.zxingWasmProcessing !== "dual")
+            || !this.canvasElement
+        ) {
             return null;
         }
 
-        const sourceCanvas = this.canvasElement;
+        return this.createZxingWasmInvertCandidateFromCanvas(
+            this.canvasElement,
+            "zxing-wasm direct invert",
+            {
+                enabled: true,
+                directMode: "zxing-wasm-processing-invert"
+            });
+    }
+
+    private createZxingWasmInvertCandidateFromCanvas(
+        sourceCanvas: HTMLCanvasElement,
+        variantLabel: string,
+        preprocessingSnapshot: any
+    ): DecodeCanvasCandidate | null {
+        if (!sourceCanvas) {
+            return null;
+        }
+
         const directCanvas = document.createElement("canvas");
         directCanvas.width = sourceCanvas.width;
         directCanvas.height = sourceCanvas.height;
@@ -1844,7 +1975,7 @@ export class Html5Qrcode {
             willReadFrequently: true
         } as any) as CanvasRenderingContext2D | null;
         if (!directContext) {
-            return this.createRawDecodeCandidate();
+            return null;
         }
 
         directContext.drawImage(sourceCanvas, 0, 0);
@@ -1864,13 +1995,10 @@ export class Html5Qrcode {
 
         return {
             canvas: directCanvas,
-            variantLabel: "zxing-wasm direct invert",
+            variantLabel: variantLabel,
             inverted: true,
             rotationAngle: 0,
-            preprocessingSnapshot: {
-                enabled: true,
-                directMode: "zxing-wasm-processing-invert"
-            }
+            preprocessingSnapshot: preprocessingSnapshot
         };
     }
 
@@ -1976,14 +2104,19 @@ export class Html5Qrcode {
         }
 
         const baseAttempts: DecodeCanvasAttempt[] = [];
-        const rotationAttempts: DecodeCanvasAttempt[] = [];
+        const transformAttempts: DecodeCanvasAttempt[] = [];
 
         candidates.forEach((candidate, index) => {
             const rotationAngle = typeof candidate.rotationAngle === "number"
                 ? candidate.rotationAngle
                 : 0;
-            const target = Math.abs(rotationAngle) > 0.001
-                ? rotationAttempts
+            const perspectiveFactor = typeof candidate.perspectiveFactor === "number"
+                ? candidate.perspectiveFactor
+                : 0;
+            const isTransformPass = Math.abs(rotationAngle) > 0.001
+                || Math.abs(perspectiveFactor) > 0.0001;
+            const target = isTransformPass
+                ? transformAttempts
                 : baseAttempts;
             target.push({
                 candidate: candidate,
@@ -1991,7 +2124,7 @@ export class Html5Qrcode {
             });
         });
 
-        if (rotationAttempts.length === 0) {
+        if (transformAttempts.length === 0) {
             return baseAttempts;
         }
 
@@ -2000,26 +2133,26 @@ export class Html5Qrcode {
             return baseAttempts.slice(0, configuredMaxPasses);
         }
 
-        const rotationBudget = configuredMaxPasses > 0
+        const transformBudget = configuredMaxPasses > 0
             ? Math.max(0, configuredMaxPasses - baseAttempts.length)
             : Html5Qrcode.MAX_ROTATION_CANDIDATES_PER_FRAME;
         const maxRotationsPerFrame = Math.max(
             0,
-            Math.min(rotationBudget, rotationAttempts.length)
+            Math.min(transformBudget, transformAttempts.length)
         );
         if (maxRotationsPerFrame <= 0) {
             return baseAttempts;
         }
 
-        const start = this.rotationAttemptCursor % rotationAttempts.length;
+        const start = this.rotationAttemptCursor % transformAttempts.length;
         for (let i = 0; i < maxRotationsPerFrame; i++) {
-            baseAttempts.push(rotationAttempts[
-                (start + i) % rotationAttempts.length
+            baseAttempts.push(transformAttempts[
+                (start + i) % transformAttempts.length
             ]);
         }
         this.rotationAttemptCursor = (
             start + maxRotationsPerFrame
-        ) % rotationAttempts.length;
+        ) % transformAttempts.length;
 
         return baseAttempts;
     }

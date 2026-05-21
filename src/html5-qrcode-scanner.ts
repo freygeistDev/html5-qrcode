@@ -279,7 +279,8 @@ export interface Html5QrcodeScannerConfig
     binarizer?: string | undefined;
     maxDecodeWidth?: number | undefined;
     maxNumberOfSymbols?: number | undefined;
-    zxingWasmProcessing?: "raw" | "invert" | undefined;
+    zxingWasmProcessing?: "raw" | "invert" | "dual" | undefined;
+    combineZxingWasmProcessing?: boolean | undefined;
 }
 
 function toHtml5QrcodeCameraScanConfig(config: Html5QrcodeScannerConfig)
@@ -329,6 +330,7 @@ function toHtml5QrcodeFullConfig(
         maxDecodeWidth: config.maxDecodeWidth,
         maxNumberOfSymbols: config.maxNumberOfSymbols,
         zxingWasmProcessing: config.zxingWasmProcessing,
+        combineZxingWasmProcessing: config.combineZxingWasmProcessing,
         scanRegion: config.scanRegion,
         imagePreprocessor: imagePreprocessor ?? undefined,
         debugCallback: config.debugCallback,

@@ -208,6 +208,25 @@ export interface ImagePreprocessingConfig {
     rotationAngles?: number[];
 
     /**
+     * Enable perspective (keystone / trapezoid) decode candidates.
+     * Simulates slight phone tilt where the code appears squashed, not merely rotated.
+     * Default: false
+     */
+    perspectivePasses?: boolean;
+
+    /**
+     * Horizontal keystone factors: fraction of width in [-0.15, 0.15].
+     * Positive values narrow the top edge (typical when tilting the phone backward).
+     */
+    perspectiveHorizontal?: number[];
+
+    /**
+     * Vertical keystone factors: fraction of height in [-0.15, 0.15].
+     * Positive values narrow the left edge.
+     */
+    perspectiveVertical?: number[];
+
+    /**
      * Build extra orthogonal passes for enabled preprocessing modules.
      * Useful for debugging which individual transform helps most.
      * Default: false
@@ -277,10 +296,14 @@ export interface ExplicitPass {
     tryInverted?: boolean;
 }
 
+export type ImagePreprocessingPerspectiveAxis = "horizontal" | "vertical";
+
 export interface ImagePreprocessingCandidateMeta {
     variantLabel: string;
     inverted: boolean;
     rotationAngle?: number;
+    perspectiveFactor?: number;
+    perspectiveAxis?: ImagePreprocessingPerspectiveAxis;
     preprocessingSnapshot: ImagePreprocessingConfig;
 }
 
@@ -338,6 +361,9 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     multiPass: false,
     rotationPasses: false,
     rotationAngles: [],
+    perspectivePasses: false,
+    perspectiveHorizontal: [],
+    perspectiveVertical: [],
     orthogonalPasses: false,
     maxPasses: 5,
     combinationPasses: false,
@@ -347,6 +373,11 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
 
 const DEFAULT_ROTATION_PASS_ANGLES: number[] = [-12, 12, -24, 24];
 const MAX_ROTATION_PASS_ANGLES = 6;
+const DEFAULT_PERSPECTIVE_HORIZONTAL_FACTORS: number[] = [-0.08, -0.04, 0.04, 0.08];
+const DEFAULT_PERSPECTIVE_VERTICAL_FACTORS: number[] = [-0.06, 0.06];
+const MAX_PERSPECTIVE_FACTORS_PER_AXIS = 6;
+const MIN_PERSPECTIVE_FACTOR = -0.15;
+const MAX_PERSPECTIVE_FACTOR = 0.15;
 const MIN_PREPROCESSING_PASSES = 1;
 const MAX_PREPROCESSING_PASSES = 256;
 const MIN_COMBINATION_PASS_SIZE = 2;
@@ -531,7 +562,8 @@ export class ImagePreprocessor {
             this.config.morphClose ||
             this.config.upscale ||
             this.config.multiPass ||
-            this.config.rotationPasses
+            this.config.rotationPasses ||
+            this.config.perspectivePasses
         );
     }
 
@@ -618,8 +650,11 @@ export class ImagePreprocessor {
 
         const direct = fullComboCandidates.find((candidate) => {
             const angle = Number(candidate?.meta?.rotationAngle || 0);
-            const normalized = isFinite(angle) ? angle : 0;
-            return Math.abs(normalized) < 0.001;
+            const normalizedAngle = isFinite(angle) ? angle : 0;
+            const factor = Number(candidate?.meta?.perspectiveFactor || 0);
+            const normalizedFactor = isFinite(factor) ? factor : 0;
+            return Math.abs(normalizedAngle) < 0.001
+                && Math.abs(normalizedFactor) < 0.0001;
         });
         if (direct) {
             return direct;
@@ -668,7 +703,9 @@ export class ImagePreprocessor {
         passCount: number,
         inverted: boolean,
         rotationAngle?: number,
-        passLabel?: string
+        passLabel?: string,
+        perspectiveFactor?: number,
+        perspectiveAxis?: ImagePreprocessingPerspectiveAxis
     ): string {
         const effectivePassLabel = typeof passLabel === "string" && passLabel.trim() !== ""
             ? passLabel.trim()
@@ -681,8 +718,17 @@ export class ImagePreprocessor {
         const rotationLabel = hasRotation
             ? ` rot${roundedAngle >= 0 ? "+" : ""}${roundedAngle}`
             : "";
+        const factor = typeof perspectiveFactor === "number"
+            ? perspectiveFactor
+            : 0;
+        const hasPerspective = Math.abs(factor) > 0.0001;
+        const roundedFactor = Math.round(factor * 1000) / 1000;
+        const axisSuffix = perspectiveAxis === "vertical" ? "V" : "H";
+        const perspectiveLabel = hasPerspective
+            ? ` keystone${axisSuffix}${roundedFactor >= 0 ? "+" : ""}${roundedFactor}`
+            : "";
         const modeLabel = inverted || !!config.forceInvert ? "inverted" : "normal";
-        return `${effectivePassLabel}${rotationLabel} ${modeLabel}`;
+        return `${effectivePassLabel}${rotationLabel}${perspectiveLabel} ${modeLabel}`;
     }
 
     private buildPreprocessingSnapshot(
@@ -741,6 +787,13 @@ export class ImagePreprocessor {
             multiPass: !!config.multiPass,
             rotationPasses: !!config.rotationPasses,
             rotationAngles: this.normalizeRotationAngles(config.rotationAngles),
+            perspectivePasses: !!config.perspectivePasses,
+            perspectiveHorizontal: this.normalizePerspectiveFactors(
+                config.perspectiveHorizontal
+            ),
+            perspectiveVertical: this.normalizePerspectiveFactors(
+                config.perspectiveVertical
+            ),
             orthogonalPasses: !!config.orthogonalPasses,
             maxPasses: this.normalizeMaxPasses(config.maxPasses),
             combinationPasses: !!config.combinationPasses,
@@ -796,6 +849,35 @@ export class ImagePreprocessor {
                     ),
                     inverted: baseInverted,
                     rotationAngle: angle,
+                    preprocessingSnapshot: preprocessingSnapshot
+                }
+            });
+        }
+
+        const perspectiveDescriptors = this.getPerspectiveDescriptorsForConfig(config);
+        for (const descriptor of perspectiveDescriptors) {
+            const warpedCanvas = this.perspectiveCanvas(
+                sourceCanvas,
+                descriptor.axis,
+                descriptor.factor
+            );
+            results.push({
+                canvas: warpedCanvas,
+                meta: {
+                    variantLabel: this.buildVariantLabel(
+                        config,
+                        passIndex,
+                        passCount,
+                        baseInverted,
+                        0,
+                        passLabel,
+                        descriptor.factor,
+                        descriptor.axis
+                    ),
+                    inverted: baseInverted,
+                    rotationAngle: 0,
+                    perspectiveFactor: descriptor.factor,
+                    perspectiveAxis: descriptor.axis,
                     preprocessingSnapshot: preprocessingSnapshot
                 }
             });
@@ -871,6 +953,78 @@ export class ImagePreprocessor {
         return output.slice(0, MAX_ROTATION_PASS_ANGLES);
     }
 
+    private normalizePerspectiveFactors(rawFactors: any): number[] {
+        if (!Array.isArray(rawFactors)) {
+            return [];
+        }
+
+        const seen = new Set<string>();
+        const output: number[] = [];
+        rawFactors.forEach((entry) => {
+            const value = Number(entry);
+            if (!isFinite(value)) {
+                return;
+            }
+            const clamped = Math.max(
+                MIN_PERSPECTIVE_FACTOR,
+                Math.min(MAX_PERSPECTIVE_FACTOR, value)
+            );
+            if (Math.abs(clamped) < 0.0001) {
+                return;
+            }
+            const normalized = Math.round(clamped * 1000) / 1000;
+            const key = normalized.toFixed(3);
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            output.push(normalized);
+        });
+
+        return output.slice(0, MAX_PERSPECTIVE_FACTORS_PER_AXIS);
+    }
+
+    private getPerspectiveDescriptorsForConfig(
+        config: ImagePreprocessingConfig
+    ): Array<{ axis: ImagePreprocessingPerspectiveAxis; factor: number }> {
+        if (!config.perspectivePasses) {
+            return [];
+        }
+
+        const descriptors: Array<{
+            axis: ImagePreprocessingPerspectiveAxis;
+            factor: number;
+        }> = [];
+
+        const horizontalFactors = this.normalizePerspectiveFactors(
+            config.perspectiveHorizontal
+        );
+        const verticalFactors = this.normalizePerspectiveFactors(
+            config.perspectiveVertical
+        );
+        const effectiveHorizontal = horizontalFactors.length > 0
+            ? horizontalFactors
+            : DEFAULT_PERSPECTIVE_HORIZONTAL_FACTORS.slice(
+                0,
+                MAX_PERSPECTIVE_FACTORS_PER_AXIS
+            );
+        const effectiveVertical = verticalFactors.length > 0
+            ? verticalFactors
+            : DEFAULT_PERSPECTIVE_VERTICAL_FACTORS.slice(
+                0,
+                MAX_PERSPECTIVE_FACTORS_PER_AXIS
+            );
+
+        effectiveHorizontal.forEach((factor) => {
+            descriptors.push({ axis: "horizontal", factor: factor });
+        });
+        effectiveVertical.forEach((factor) => {
+            descriptors.push({ axis: "vertical", factor: factor });
+        });
+
+        return descriptors;
+    }
+
     private normalizeConfig(
         config?: ImagePreprocessingConfig
     ): ImagePreprocessingConfig {
@@ -880,6 +1034,13 @@ export class ImagePreprocessor {
         };
         merged.rotationPasses = !!merged.rotationPasses;
         merged.rotationAngles = this.normalizeRotationAngles(merged.rotationAngles);
+        merged.perspectivePasses = !!merged.perspectivePasses;
+        merged.perspectiveHorizontal = this.normalizePerspectiveFactors(
+            merged.perspectiveHorizontal
+        );
+        merged.perspectiveVertical = this.normalizePerspectiveFactors(
+            merged.perspectiveVertical
+        );
         merged.datamatrixDpmMode = merged.datamatrixDpmMode === true;
         merged.decodingBudget = merged.decodingBudget === "slow" ? "slow" : "normal";
         merged.temporalDenoise = !!merged.temporalDenoise;
@@ -2194,5 +2355,154 @@ export class ImagePreprocessor {
 
     private resetMotionStabilizationCache(): void {
         this.motionStabilizationCache.clear();
+    }
+
+    /**
+     * Warp the source canvas into a horizontal or vertical trapezoid (keystone).
+     */
+    private perspectiveCanvas(
+        sourceCanvas: HTMLCanvasElement,
+        axis: ImagePreprocessingPerspectiveAxis,
+        factor: number
+    ): HTMLCanvasElement {
+        const width = sourceCanvas.width;
+        const height = sourceCanvas.height;
+        const resultCanvas = document.createElement("canvas");
+        resultCanvas.width = width;
+        resultCanvas.height = height;
+        const ctx = resultCanvas.getContext("2d")!;
+
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, width, height);
+
+        let dstTopLeft: [number, number];
+        let dstTopRight: [number, number];
+        let dstBottomRight: [number, number];
+        let dstBottomLeft: [number, number];
+
+        if (axis === "horizontal") {
+            const topLeftX = width * factor;
+            const topRightX = width * (1 - factor);
+            dstTopLeft = [topLeftX, 0];
+            dstTopRight = [topRightX, 0];
+            dstBottomRight = [width, height];
+            dstBottomLeft = [0, height];
+        } else {
+            const leftTopY = height * factor;
+            const leftBottomY = height * (1 - factor);
+            dstTopLeft = [0, leftTopY];
+            dstTopRight = [width, 0];
+            dstBottomRight = [width, height];
+            dstBottomLeft = [0, leftBottomY];
+        }
+
+        const srcTopLeft: [number, number] = [0, 0];
+        const srcTopRight: [number, number] = [width, 0];
+        const srcBottomRight: [number, number] = [width, height];
+        const srcBottomLeft: [number, number] = [0, height];
+
+        this.drawImageTriangle(
+            ctx,
+            sourceCanvas,
+            srcTopLeft,
+            srcTopRight,
+            srcBottomRight,
+            dstTopLeft,
+            dstTopRight,
+            dstBottomRight
+        );
+        this.drawImageTriangle(
+            ctx,
+            sourceCanvas,
+            srcTopLeft,
+            srcBottomRight,
+            srcBottomLeft,
+            dstTopLeft,
+            dstBottomRight,
+            dstBottomLeft
+        );
+
+        return resultCanvas;
+    }
+
+    /**
+     * Affine warp of one source triangle into one destination triangle.
+     */
+    private drawImageTriangle(
+        ctx: CanvasRenderingContext2D,
+        image: CanvasImageSource,
+        sourceA: [number, number],
+        sourceB: [number, number],
+        sourceC: [number, number],
+        destA: [number, number],
+        destB: [number, number],
+        destC: [number, number]
+    ): void {
+        const [sx0, sy0] = sourceA;
+        const [sx1, sy1] = sourceB;
+        const [sx2, sy2] = sourceC;
+        const [dx0, dy0] = destA;
+        const [dx1, dy1] = destB;
+        const [dx2, dy2] = destC;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(dx0, dy0);
+        ctx.lineTo(dx1, dy1);
+        ctx.lineTo(dx2, dy2);
+        ctx.closePath();
+        ctx.clip();
+
+        const denominator = (
+            sx0 * (sy2 - sy1) +
+            sx1 * (sy0 - sy2) +
+            sx2 * (sy1 - sy0)
+        );
+        if (Math.abs(denominator) < 1e-6) {
+            ctx.restore();
+            return;
+        }
+
+        const transformA = (
+            dx0 * (sy2 - sy1) +
+            dx1 * (sy0 - sy2) +
+            dx2 * (sy1 - sy0)
+        ) / denominator;
+        const transformB = (
+            dy0 * (sy2 - sy1) +
+            dy1 * (sy0 - sy2) +
+            dy2 * (sy1 - sy0)
+        ) / denominator;
+        const transformC = (
+            dx0 * (sx1 - sx2) +
+            dx1 * (sx2 - sx0) +
+            dx2 * (sx0 - sx1)
+        ) / denominator;
+        const transformD = (
+            dy0 * (sx1 - sx2) +
+            dy1 * (sx2 - sx0) +
+            dy2 * (sx0 - sx1)
+        ) / denominator;
+        const transformE = (
+            dx0 * (sx2 * sy1 - sx1 * sy2) +
+            dx1 * (sx0 * sy2 - sx2 * sy0) +
+            dx2 * (sx1 * sy0 - sx0 * sy1)
+        ) / denominator;
+        const transformF = (
+            dy0 * (sx2 * sy1 - sx1 * sy2) +
+            dy1 * (sx0 * sy2 - sx2 * sy0) +
+            dy2 * (sx1 * sy0 - sx0 * sy1)
+        ) / denominator;
+
+        ctx.transform(
+            transformA,
+            transformB,
+            transformC,
+            transformD,
+            transformE,
+            transformF
+        );
+        ctx.drawImage(image, 0, 0);
+        ctx.restore();
     }
 }
