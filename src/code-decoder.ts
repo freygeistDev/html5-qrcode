@@ -21,7 +21,7 @@ import {
     ZXingDecoderConfig
 } from "./zxing-html5-qrcode-decoder";
 import { BarcodeDetectorDelegate } from "./native-bar-code-detector";
-import { ZXingWasmDecoder } from "./zxing-wasm-decoder";
+import { ZXingWasmDecoder, ZXingWasmDecodeOverrides } from "./zxing-wasm-decoder";
 
 /**
  * Configuration for the decoder shim.
@@ -208,7 +208,10 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         }
     }
 
-    async decodeAsync(canvas: HTMLCanvasElement): Promise<QrcodeResult> {
+    async decodeAsync(
+        canvas: HTMLCanvasElement,
+        decodeOverrides?: ZXingWasmDecodeOverrides
+    ): Promise<QrcodeResult> {
         let startTime = performance.now();
         try {
             if (this.useZXingWasmMode) {
@@ -216,7 +219,7 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
                 // is error-fallback only (e.g. WASM load failure). The alternating
                 // strategy designed for BarcodeDetector+ZXing would halve WASM
                 // scan rate and is wrong here.
-                return await this.decodeRobustlyAsync(canvas);
+                return await this.decodeRobustlyAsync(canvas, decodeOverrides);
             }
             return await this.getDecoder().decodeAsync(canvas);
         } finally {
@@ -224,10 +227,16 @@ export class Html5QrcodeShim implements RobustQrcodeDecoderAsync {
         }
     }
 
-    async decodeRobustlyAsync(canvas: HTMLCanvasElement)
-        : Promise<QrcodeResult> {
+    async decodeRobustlyAsync(
+        canvas: HTMLCanvasElement,
+        decodeOverrides?: ZXingWasmDecodeOverrides
+    ): Promise<QrcodeResult> {
         let startTime = performance.now();
         try {
+            if (this.primaryDecoder instanceof ZXingWasmDecoder) {
+                return await this.primaryDecoder.decodeAsync(
+                    canvas, decodeOverrides);
+            }
             return await this.primaryDecoder.decodeAsync(canvas);
         } catch(error) {
             if (this.secondaryDecoder

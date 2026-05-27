@@ -279,7 +279,7 @@ export interface Html5QrcodeScannerConfig
     binarizer?: string | undefined;
     maxDecodeWidth?: number | undefined;
     maxNumberOfSymbols?: number | undefined;
-    zxingWasmProcessing?: "raw" | "invert" | "dual" | undefined;
+    zxingWasmProcessing?: "raw" | "invert" | "invert-sharp" | "dual" | undefined;
     combineZxingWasmProcessing?: boolean | undefined;
 }
 

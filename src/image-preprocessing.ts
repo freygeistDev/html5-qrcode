@@ -269,7 +269,25 @@ export interface ImagePreprocessingConfig {
      */
     explicitPasses?: ExplicitPass[];
 
+    /**
+     * When true and explicitPasses are configured, each explicit pass is
+     * processed on demand (ladder decode) instead of building all pass
+     * canvases upfront on every frame.
+     * Default: false
+     */
+    lazyPassLadder?: boolean;
+
+    /**
+     * When lazyPassLadder is active, rotate explicit passes across frames
+     * (one pass per frame plus optional warm pass) instead of running all
+     * passes on every frame.
+     * Default: true when lazyPassLadder is enabled.
+     */
+    lazyPassLadderRotatePasses?: boolean;
+
 }
+
+export type ImagePreprocessingPassVariantMode = "both" | "normal" | "inverted";
 
 /**
  * A single explicitly-defined preprocessing pass. Fields that are undefined
@@ -368,7 +386,9 @@ export const DEFAULT_PREPROCESSING_CONFIG: ImagePreprocessingConfig = {
     maxPasses: 5,
     combinationPasses: false,
     combinationMaxSize: 3,
-    combinationIncludeInversion: false
+    combinationIncludeInversion: false,
+    lazyPassLadder: false,
+    lazyPassLadderRotatePasses: true
 };
 
 const DEFAULT_ROTATION_PASS_ANGLES: number[] = [-12, 12, -24, 24];
@@ -581,6 +601,59 @@ export class ImagePreprocessor {
     }
 
     /**
+     * True when lazy ladder decode should run one explicit pass at a time.
+     */
+    public usesLazyPassLadder(): boolean {
+        return !!(
+            this.config.lazyPassLadder
+            && this.config.explicitPasses
+            && this.config.explicitPasses.length > 0
+        );
+    }
+
+    /**
+     * Number of explicit preprocessing passes configured for ladder decode.
+     */
+    public getExplicitPassCount(): number {
+        if (!this.config.explicitPasses || this.config.explicitPasses.length === 0) {
+            return 0;
+        }
+        return this.buildPassDescriptors(this.config).length;
+    }
+
+    /**
+     * Process a single explicit pass index for lazy ladder decode.
+     */
+    public processExplicitPassWithMetadata(
+        sourceCanvas: HTMLCanvasElement,
+        passIndex: number,
+        variantMode: ImagePreprocessingPassVariantMode = "both"
+    ): ImagePreprocessingCandidate[] {
+        const passes = this.buildPassDescriptors(this.config);
+        return this.processPassDescriptorAt(
+            sourceCanvas,
+            passIndex,
+            passes,
+            variantMode
+        );
+    }
+
+    public usesLazyPassLadderRotatePasses(): boolean {
+        if (!this.usesLazyPassLadder()) {
+            return false;
+        }
+        return this.config.lazyPassLadderRotatePasses !== false;
+    }
+
+    public getExplicitPassTryInverted(passIndex: number): boolean {
+        const passes = this.buildPassDescriptors(this.config);
+        if (passIndex < 0 || passIndex >= passes.length) {
+            return false;
+        }
+        return !!passes[passIndex].config.tryInverted;
+    }
+
+    /**
      * Process a canvas and return processed candidates with metadata.
      */
     public processWithMetadata(
@@ -591,10 +664,37 @@ export class ImagePreprocessor {
         const passes = this.buildPassDescriptors(this.config);
         const passCount = passes.length;
 
-        passes.forEach((pass, passIndex) => {
-            const cfg = pass.config;
-            const variantsForConfig: ImagePreprocessingCandidate[] = [];
-            const preprocessingSnapshot = this.buildPreprocessingSnapshot(cfg);
+        for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
+            results.push(...this.processPassDescriptorAt(
+                sourceCanvas,
+                passIndex,
+                passes
+            ));
+        }
+
+        const maxPasses = this.normalizeMaxPasses(this.config.maxPasses);
+        return this.limitCandidatesWithFullCombo(results, maxPasses);
+    }
+
+    private processPassDescriptorAt(
+        sourceCanvas: HTMLCanvasElement,
+        passIndex: number,
+        passes: ImagePreprocessingPassDescriptor[],
+        variantMode: ImagePreprocessingPassVariantMode = "both"
+    ): ImagePreprocessingCandidate[] {
+        if (passIndex < 0 || passIndex >= passes.length) {
+            return [];
+        }
+
+        const pass = passes[passIndex];
+        const passCount = passes.length;
+        const cfg = pass.config;
+        const variantsForConfig: ImagePreprocessingCandidate[] = [];
+        const preprocessingSnapshot = this.buildPreprocessingSnapshot(cfg);
+        const includeNormal = variantMode === "both" || variantMode === "normal";
+        const includeInverted = variantMode === "both" || variantMode === "inverted";
+
+        if (includeNormal) {
             const processed = this.processCanvasWithConfig(
                 sourceCanvas, cfg, false);
             variantsForConfig.push(...this.buildCandidatesForVariant(
@@ -606,26 +706,23 @@ export class ImagePreprocessor {
                 preprocessingSnapshot,
                 pass.passLabel
             ));
+        }
 
-            if (cfg.tryInverted) {
-                const inverted = this.processCanvasWithConfig(
-                    sourceCanvas, cfg, true);
-                variantsForConfig.push(...this.buildCandidatesForVariant(
-                    inverted,
-                    cfg,
-                    passIndex,
-                    passCount,
-                    true,
-                    preprocessingSnapshot,
-                    pass.passLabel
-                ));
-            }
+        if (includeInverted && cfg.tryInverted) {
+            const inverted = this.processCanvasWithConfig(
+                sourceCanvas, cfg, true);
+            variantsForConfig.push(...this.buildCandidatesForVariant(
+                inverted,
+                cfg,
+                passIndex,
+                passCount,
+                true,
+                preprocessingSnapshot,
+                pass.passLabel
+            ));
+        }
 
-            results.push(...variantsForConfig);
-        });
-
-        const maxPasses = this.normalizeMaxPasses(this.config.maxPasses);
-        return this.limitCandidatesWithFullCombo(results, maxPasses);
+        return variantsForConfig;
     }
 
     private isFullComboCandidate(
@@ -1078,6 +1175,10 @@ export class ImagePreprocessor {
         );
         merged.combinationIncludeInversion = merged.combinationIncludeInversion !== false;
         merged.maxPasses = this.normalizeMaxPasses(merged.maxPasses);
+        merged.lazyPassLadder = merged.lazyPassLadder === true;
+        merged.lazyPassLadderRotatePasses = merged.lazyPassLadder
+            ? merged.lazyPassLadderRotatePasses !== false
+            : false;
         return merged;
     }
 

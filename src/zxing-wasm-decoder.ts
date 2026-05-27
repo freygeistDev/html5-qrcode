@@ -71,6 +71,14 @@ const REVERSE_FORMAT_MAP: Map<Html5QrcodeSupportedFormats, string> = (() => {
 })();
 
 /**
+ * Per-decode overrides for multi-scale ladder steps.
+ */
+export interface ZXingWasmDecodeOverrides {
+    maxDecodeWidth?: number;
+    downscaleThreshold?: number;
+}
+
+/**
  * Decoder that uses zxing-wasm (C++ zxing-cpp via WebAssembly).
  * Substantially better DataMatrix detection than ZXing JS, especially for DPM.
  */
@@ -189,14 +197,24 @@ export class ZXingWasmDecoder implements QrcodeDecoderAsync {
         }
     }
 
-    async decodeAsync(canvas: HTMLCanvasElement): Promise<QrcodeResult> {
+    async decodeAsync(
+        canvas: HTMLCanvasElement,
+        overrides?: ZXingWasmDecodeOverrides
+    ): Promise<QrcodeResult> {
+        const effectiveMaxDecodeWidth = overrides?.maxDecodeWidth !== undefined
+            ? overrides.maxDecodeWidth
+            : this.maxDecodeWidth;
+        const effectiveDownscaleThreshold = overrides?.downscaleThreshold !== undefined
+            ? overrides.downscaleThreshold
+            : this.downscaleThreshold;
+
         let sourceCanvas = canvas;
 
         // Pre-downscale to maxDecodeWidth via bilinear canvas interpolation.
         // Merges dot-pattern DPM modules into solid cells before ZXing binarization.
-        if (this.maxDecodeWidth && canvas.width > this.maxDecodeWidth) {
-            const scale = this.maxDecodeWidth / canvas.width;
-            const w = this.maxDecodeWidth;
+        if (effectiveMaxDecodeWidth && canvas.width > effectiveMaxDecodeWidth) {
+            const scale = effectiveMaxDecodeWidth / canvas.width;
+            const w = effectiveMaxDecodeWidth;
             const h = Math.max(1, Math.round(canvas.height * scale));
             const tmp = document.createElement("canvas");
             tmp.width = w;
@@ -242,7 +260,7 @@ export class ZXingWasmDecoder implements QrcodeDecoderAsync {
             tryDenoise: this.tryDenoise,
             tryInvert: this.tryInvert,
             isPure: this.isPure,
-            downscaleThreshold: this.downscaleThreshold,
+            downscaleThreshold: effectiveDownscaleThreshold,
             maxNumberOfSymbols: this.maxNumberOfSymbols,
             returnErrors: this.returnErrors,
             textMode: "Plain",
@@ -308,7 +326,8 @@ export class ZXingWasmDecoder implements QrcodeDecoderAsync {
                     tryDenoise: this.tryDenoise,
                     tryInvert: this.tryInvert,
                     binarizer: this.binarizer,
-                    maxDecodeWidth: this.maxDecodeWidth,
+                    maxDecodeWidth: effectiveMaxDecodeWidth,
+                    downscaleThreshold: effectiveDownscaleThreshold,
                     maxNumberOfSymbols: this.maxNumberOfSymbols,
                 },
             },

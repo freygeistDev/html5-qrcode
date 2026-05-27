@@ -43,6 +43,7 @@ import {
 import { CameraRetriever } from "./camera/retriever";
 import { ExperimentalFeaturesConfig } from "./experimental-features";
 import { configureZXingWasmPath } from "./zxing-wasm-decoder";
+import { readBarcodesFromImageData } from "@sec-ant/zxing-wasm/reader";
 import {
     StateManagerProxy,
     StateManagerFactory,
@@ -192,11 +193,32 @@ export interface Html5QrcodeConfigs {
     zxingWasmProcessing?: Html5QrcodeZxingWasmProcessing | undefined;
 
     /**
-     * When true (default), direct zxing-wasm candidates (invert/raw/dual) are
-     * decoded in addition to image-preprocessor candidates. When false, an
-     * enabled preprocessor replaces the direct wasm path (legacy behaviour).
+     * Sharpen intensity (0.1–0.6) applied after red-channel invert when
+     * zxingWasmProcessing is "invert-sharp".
+     */
+    zxingWasmSharpenAmount?: number | undefined;
+
+    /**
+     * Soft-compress specular highlights (red channel, 180–245) before invert.
+     * 0 disables clipping. Helps foil glare without a second WASM tryInvert pass.
+     */
+    zxingWasmHighlightClip?: number | undefined;
+
+    /**
+     * When true (default), direct zxing-wasm candidates are merged with
+     * image-preprocessor candidates and invert variants may be appended to
+     * preprocessing passes. When false, an enabled preprocessor still replaces
+     * the direct wasm path for those passes — but explicit invert/invert-sharp/dual
+     * modes still use the lightweight direct wasm candidate.
      */
     combineZxingWasmProcessing?: boolean | undefined;
+
+    /**
+     * When true, all decode candidates in a tier run concurrently via Promise.any
+     * instead of sequential await. Intended for multi-scale ladder A/B and CPU
+     * measurement — increases peak CPU load on mobile.
+     */
+    zxingWasmParallelLadder?: boolean | undefined;
 }
 
 /**
@@ -257,7 +279,13 @@ export interface Html5QrcodeFullConfig extends Html5QrcodeConfigs {
 }
 
 export type Html5QrcodeDebugCandidateMode = "attempted" | "all";
-export type Html5QrcodeZxingWasmProcessing = "raw" | "invert" | "dual";
+export type Html5QrcodeZxingWasmProcessing
+    = "raw"
+    | "invert"
+    | "invert-sharp"
+    | "dual"
+    | "invert-sharp-dual"
+    | "invert-sharp-multi-scale";
 
 export interface Html5QrcodeDebugMeta {
     frameId: number;
@@ -280,6 +308,8 @@ export interface Html5QrcodeDebugMeta {
     videoClientWidth?: number;
     videoClientHeight?: number;
     videoObjectFit?: string;
+    parallelLadder?: boolean;
+    decodeWallMs?: number;
 }
 
 /**
@@ -707,11 +737,20 @@ interface DecodeCanvasCandidate {
     perspectiveFactor?: number;
     perspectiveAxis?: "horizontal" | "vertical";
     preprocessingSnapshot?: any;
+    decodeOverrides?: {
+        maxDecodeWidth?: number;
+        downscaleThreshold?: number;
+    };
 }
 
 interface DecodeCanvasAttempt {
     candidate: DecodeCanvasCandidate;
     candidateIndex: number;
+}
+
+interface LazyLadderTier {
+    candidates: DecodeCanvasCandidate[];
+    passIndex: number | null;
 }
 
 interface VideoSourceRegionMapping {
@@ -766,9 +805,14 @@ export class Html5Qrcode {
         | undefined;
     private debugCandidateMode: Html5QrcodeDebugCandidateMode = "attempted";
     private zxingWasmProcessing: Html5QrcodeZxingWasmProcessing = "raw";
+    private zxingWasmSharpenAmount: number = 0.34;
+    private zxingWasmHighlightClip: number = 0;
     private combineZxingWasmProcessing: boolean = true;
+    private zxingWasmParallelLadder: boolean = false;
     private debugFrameId: number = 0;
     private rotationAttemptCursor: number = 0;
+    private lazyLadderPassCursor: number = 0;
+    private lazyLadderWarmPassIndex: number | null = null;
     private currentFrameSourceRegion: VideoSourceRegionMapping | null = null;
     private autoFocusRetryTimeout: any | null = null;
     private autoFocusRunId: number = 0;
@@ -864,8 +908,14 @@ export class Html5Qrcode {
             configObject?.debugCandidateMode);
         this.zxingWasmProcessing = Html5Qrcode.normalizeZxingWasmProcessing(
             configObject?.zxingWasmProcessing);
+        this.zxingWasmSharpenAmount = Html5Qrcode.normalizeZxingWasmSharpenAmount(
+            configObject?.zxingWasmSharpenAmount);
+        this.zxingWasmHighlightClip = Html5Qrcode.normalizeZxingWasmHighlightClip(
+            configObject?.zxingWasmHighlightClip);
         this.combineZxingWasmProcessing
             = configObject?.combineZxingWasmProcessing !== false;
+        this.zxingWasmParallelLadder
+            = configObject?.zxingWasmParallelLadder === true;
 
         this.foreverScanTimeout;
         this.shouldScan = true;
@@ -881,10 +931,38 @@ export class Html5Qrcode {
     private static normalizeZxingWasmProcessing(
         mode: Html5QrcodeZxingWasmProcessing | undefined)
             : Html5QrcodeZxingWasmProcessing {
-        if (mode === "invert" || mode === "dual") {
+        if (mode === "invert"
+            || mode === "invert-sharp"
+            || mode === "dual"
+            || mode === "invert-sharp-dual"
+            || mode === "invert-sharp-multi-scale") {
             return mode;
         }
         return "raw";
+    }
+
+    private static normalizeZxingWasmHighlightClip(
+        threshold: number | undefined): number {
+        if (typeof threshold !== "number" || !isFinite(threshold) || threshold <= 0) {
+            return 0;
+        }
+        return Math.max(180, Math.min(245, threshold));
+    }
+
+    private static normalizeZxingWasmSharpenAmount(
+        amount: number | undefined): number {
+        if (typeof amount !== "number" || !isFinite(amount)) {
+            return 0.34;
+        }
+        return Math.max(0.1, Math.min(0.6, amount));
+    }
+
+    private usesDirectZxingWasmProcessing(): boolean {
+        return this.zxingWasmProcessing === "invert"
+            || this.zxingWasmProcessing === "invert-sharp"
+            || this.zxingWasmProcessing === "dual"
+            || this.zxingWasmProcessing === "invert-sharp-dual"
+            || this.zxingWasmProcessing === "invert-sharp-multi-scale";
     }
 
     private buildEffectiveImagePreprocessor(
@@ -1388,6 +1466,37 @@ export class Html5Qrcode {
     }
 
     /**
+     * Loads the zxing-wasm module before the first live decode.
+     * Call during scanner startup to avoid a multi-second cold-start penalty
+     * on the first DataMatrix frame.
+     */
+    public static async prewarmZXingWasm(basePath?: string): Promise<void> {
+        if (basePath) {
+            Html5Qrcode.configureZXingWasmPath(basePath);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 16;
+        canvas.height = 16;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+            return;
+        }
+
+        ctx.fillRect(0, 0, 16, 16);
+        try {
+            await readBarcodesFromImageData(
+                ctx.getImageData(0, 0, 16, 16),
+                {
+                    formats: ["DataMatrix"] as any,
+                    tryHarder: false,
+                });
+        } catch (_error) {
+            // Expected on an empty canvas — WASM is loaded after this call.
+        }
+    }
+
+    /**
      * Returns the capabilities of the running video track.
      * 
      * Read more: https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack/getConstraints
@@ -1770,18 +1879,33 @@ export class Html5Qrcode {
             return Promise.resolve(false);
         }
 
+        if (this.shouldUseLazyPassLadder()) {
+            return this.decodeWithLazyPassLadder(
+                qrCodeSuccessCallback, qrCodeErrorCallback);
+        }
+
         const canvasesToScan = this.getCanvasesForDecode();
         return this.decodeWithCanvases(
             canvasesToScan, qrCodeSuccessCallback, qrCodeErrorCallback);
+    }
+
+    private shouldUseLazyPassLadder(): boolean {
+        if (!this.imagePreprocessor
+            || typeof this.imagePreprocessor.usesLazyPassLadder !== "function") {
+            return false;
+        }
+        return this.imagePreprocessor.usesLazyPassLadder();
     }
 
     /**
      * Get the list of canvases to decode (preprocessed variants if enabled).
      */
     private getCanvasesForDecode(): DecodeCanvasCandidate[] {
-        const wasmDirectCandidates = this.combineZxingWasmProcessing
+        const wasmDirectCandidates = this.usesDirectZxingWasmProcessing()
             ? this.getDirectZxingWasmCandidates()
-            : [];
+            : (this.combineZxingWasmProcessing
+                ? this.getDirectZxingWasmCandidates()
+                : []);
         const preprocessingCandidates = this.getPreprocessingCandidates();
 
         if (preprocessingCandidates.length > 0) {
@@ -1802,6 +1926,7 @@ export class Html5Qrcode {
     private shouldAppendWasmInvertPerCandidate(): boolean {
         return this.combineZxingWasmProcessing
             && (this.zxingWasmProcessing === "invert"
+                || this.zxingWasmProcessing === "invert-sharp"
                 || this.zxingWasmProcessing === "dual");
     }
 
@@ -1846,8 +1971,17 @@ export class Html5Qrcode {
      * Direct zxing-wasm invert/raw candidates (lightweight foil path).
      */
     private getDirectZxingWasmCandidates(): DecodeCanvasCandidate[] {
-        if (this.zxingWasmProcessing === "dual") {
-            const directCandidate = this.createDirectZxingWasmCandidate();
+        if (this.zxingWasmProcessing === "invert-sharp-multi-scale") {
+            return this.getMultiScaleLadderCandidates();
+        }
+
+        if (this.zxingWasmProcessing === "dual"
+            || this.zxingWasmProcessing === "invert-sharp-dual") {
+            const directMode = this.zxingWasmProcessing === "invert-sharp-dual"
+                ? "invert-sharp"
+                : "invert";
+            const directCandidate = this.createDirectZxingWasmCandidateWithMode(
+                directMode);
             const candidates = [this.createRawDecodeCandidate()];
             if (directCandidate) {
                 candidates.unshift(directCandidate);
@@ -1861,6 +1995,57 @@ export class Html5Qrcode {
         }
 
         return [];
+    }
+
+    /**
+     * Distance-tolerant decode ladder: sequential WASM attempts with per-step
+     * maxDecodeWidth / downscaleThreshold (benchmark May 2026).
+     */
+    private getMultiScaleLadderCandidates(): DecodeCanvasCandidate[] {
+        const invertSharp = this.createDirectZxingWasmCandidateWithMode(
+            "invert-sharp");
+        const candidates: DecodeCanvasCandidate[] = [];
+
+        if (invertSharp) {
+            candidates.push({
+                ...invertSharp,
+                variantLabel: "multi-scale L1 invert-sharp @300",
+                decodeOverrides: {
+                    maxDecodeWidth: 300,
+                    downscaleThreshold: 9999
+                }
+            });
+        }
+
+        candidates.push({
+            ...this.createRawDecodeCandidate(),
+            variantLabel: "multi-scale L2 raw + pyramid @500",
+            decodeOverrides: {
+                maxDecodeWidth: 300,
+                downscaleThreshold: 500
+            }
+        });
+
+        if (invertSharp) {
+            candidates.push({
+                ...invertSharp,
+                variantLabel: "multi-scale L3 invert-sharp @340",
+                decodeOverrides: {
+                    maxDecodeWidth: 340,
+                    downscaleThreshold: 9999
+                }
+            });
+            candidates.push({
+                ...invertSharp,
+                variantLabel: "multi-scale L4 invert-sharp @220",
+                decodeOverrides: {
+                    maxDecodeWidth: 220,
+                    downscaleThreshold: 9999
+                }
+            });
+        }
+
+        return candidates;
     }
 
     /**
@@ -1879,30 +2064,8 @@ export class Html5Qrcode {
                     = this.imagePreprocessor.processWithMetadata(
                         this.canvasElement!);
                 if (processedWithMeta && processedWithMeta.length > 0) {
-                    return processedWithMeta.map((candidate, index) => {
-                        const meta = candidate.meta || (<any>{});
-                        return {
-                            canvas: candidate.canvas,
-                            variantLabel:
-                                typeof meta.variantLabel === "string"
-                                    && meta.variantLabel.trim() !== ""
-                                    ? meta.variantLabel
-                                    : `candidate ${index + 1}`,
-                            inverted: !!meta.inverted,
-                            rotationAngle: typeof meta.rotationAngle === "number"
-                                ? meta.rotationAngle
-                                : 0,
-                            perspectiveFactor: typeof meta.perspectiveFactor === "number"
-                                ? meta.perspectiveFactor
-                                : 0,
-                            perspectiveAxis: meta.perspectiveAxis === "vertical"
-                                ? "vertical"
-                                : (meta.perspectiveAxis === "horizontal"
-                                    ? "horizontal"
-                                    : undefined),
-                            preprocessingSnapshot: meta.preprocessingSnapshot
-                        };
-                    });
+                    return this.mapPreprocessingCandidatesToDecode(
+                        processedWithMeta);
                 }
             }
 
@@ -1930,6 +2093,214 @@ export class Html5Qrcode {
         return [];
     }
 
+    private mapPreprocessingCandidatesToDecode(
+        processedWithMeta: Array<ImagePreprocessingCandidate>
+    ): DecodeCanvasCandidate[] {
+        return processedWithMeta.map((candidate, index) => {
+            const meta = candidate.meta || (<any>{});
+            return {
+                canvas: candidate.canvas,
+                variantLabel:
+                    typeof meta.variantLabel === "string"
+                        && meta.variantLabel.trim() !== ""
+                        ? meta.variantLabel
+                        : `candidate ${index + 1}`,
+                inverted: !!meta.inverted,
+                rotationAngle: typeof meta.rotationAngle === "number"
+                    ? meta.rotationAngle
+                    : 0,
+                perspectiveFactor: typeof meta.perspectiveFactor === "number"
+                    ? meta.perspectiveFactor
+                    : 0,
+                perspectiveAxis: meta.perspectiveAxis === "vertical"
+                    ? "vertical"
+                    : (meta.perspectiveAxis === "horizontal"
+                        ? "horizontal"
+                        : undefined),
+                preprocessingSnapshot: meta.preprocessingSnapshot
+            };
+        });
+    }
+
+    /**
+     * Lazy ladder: direct WASM first, then explicit passes spread across frames.
+     * Stops as soon as a candidate decodes successfully.
+     */
+    private async decodeWithLazyPassLadder(
+        qrCodeSuccessCallback: QrcodeSuccessCallback,
+        qrCodeErrorCallback: QrcodeErrorCallback
+    ): Promise<boolean> {
+        const frameId = ++this.debugFrameId;
+        let lastError: any = null;
+        const preprocessor = this.imagePreprocessor!;
+        const tiers = this.buildLazyLadderTiers(preprocessor);
+
+        for (const tier of tiers) {
+            const tierCandidates = tier.candidates;
+            if (!tierCandidates || tierCandidates.length === 0) {
+                continue;
+            }
+
+            if (this.debugCandidateMode === "all") {
+                tierCandidates.forEach((candidate, index) => {
+                    this.emitDebugCanvas(candidate.canvas, {
+                        frameId: frameId,
+                        candidateIndex: index + 1,
+                        candidateCount: tierCandidates.length,
+                        variantLabel: candidate.variantLabel,
+                        inverted: candidate.inverted,
+                        rotationAngle: candidate.rotationAngle,
+                        preprocessingSnapshot: candidate.preprocessingSnapshot,
+                        attempted: false,
+                        successful: false,
+                        ...this.getDebugSourceRegionMeta()
+                    });
+                });
+            }
+
+            const tierResult = await this.decodeCandidateTier(
+                tierCandidates,
+                frameId,
+                qrCodeSuccessCallback);
+            if (tierResult.success) {
+                if (tier.passIndex !== null && tier.passIndex >= 0) {
+                    this.lazyLadderWarmPassIndex = tier.passIndex;
+                }
+                this.possiblyUpdateShaders(/* qrMatch= */ true);
+                return true;
+            }
+            if (tierResult.lastError) {
+                lastError = tierResult.lastError;
+            }
+        }
+
+        this.possiblyUpdateShaders(/* qrMatch= */ false);
+        const errorMessage = Html5QrcodeStrings.codeParseError(
+            lastError ?? "No code detected");
+        qrCodeErrorCallback(
+            errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
+        return false;
+    }
+
+    private buildLazyLadderTiers(preprocessor: any): LazyLadderTier[] {
+        const tiers: LazyLadderTier[] = [];
+
+        if (this.combineZxingWasmProcessing) {
+            tiers.push({
+                candidates: this.getDirectZxingWasmCandidates(),
+                passIndex: null
+            });
+        }
+
+        const passCount = preprocessor.getExplicitPassCount();
+        if (passCount <= 0) {
+            if (tiers.length === 0) {
+                tiers.push({
+                    candidates: [this.createRawDecodeCandidate()],
+                    passIndex: null
+                });
+            }
+            return tiers;
+        }
+
+        const rotatePasses = typeof preprocessor.usesLazyPassLadderRotatePasses
+            === "function"
+            && preprocessor.usesLazyPassLadderRotatePasses();
+        const passIndexes = rotatePasses
+            ? this.getLazyLadderPassIndexesForFrame(passCount)
+            : this.getAllLazyLadderPassIndexes(passCount);
+
+        for (const passIndex of passIndexes) {
+            tiers.push(...this.buildLazyLadderPassTiers(
+                preprocessor,
+                passIndex
+            ));
+        }
+
+        return tiers;
+    }
+
+    private getAllLazyLadderPassIndexes(passCount: number): number[] {
+        const passIndexes: number[] = [];
+        for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
+            passIndexes.push(passIndex);
+        }
+        return passIndexes;
+    }
+
+    private getLazyLadderPassIndexesForFrame(passCount: number): number[] {
+        const passIndexes: number[] = [];
+        if (
+            this.lazyLadderWarmPassIndex !== null
+            && this.lazyLadderWarmPassIndex >= 0
+            && this.lazyLadderWarmPassIndex < passCount
+        ) {
+            passIndexes.push(this.lazyLadderWarmPassIndex);
+        }
+
+        const rotatingPass = this.lazyLadderPassCursor % passCount;
+        this.lazyLadderPassCursor = (this.lazyLadderPassCursor + 1) % passCount;
+        if (passIndexes.indexOf(rotatingPass) === -1) {
+            passIndexes.push(rotatingPass);
+        }
+
+        return passIndexes;
+    }
+
+    private buildLazyLadderPassTiers(
+        preprocessor: any,
+        passIndex: number
+    ): LazyLadderTier[] {
+        const tiers: LazyLadderTier[] = [];
+        const normalCandidates = this.buildLazyLadderPassCandidates(
+            preprocessor,
+            passIndex,
+            "normal"
+        );
+        if (normalCandidates.length > 0) {
+            tiers.push({
+                candidates: normalCandidates,
+                passIndex: passIndex
+            });
+        }
+
+        const passConfig = preprocessor.getExplicitPassTryInverted
+            && typeof preprocessor.getExplicitPassTryInverted === "function"
+            ? preprocessor.getExplicitPassTryInverted(passIndex)
+            : false;
+        const tryInverted = !!passConfig;
+        if (!tryInverted) {
+            return tiers;
+        }
+
+        const invertedCandidates = this.buildLazyLadderPassCandidates(
+            preprocessor,
+            passIndex,
+            "inverted"
+        );
+        if (invertedCandidates.length > 0) {
+            tiers.push({
+                candidates: invertedCandidates,
+                passIndex: passIndex
+            });
+        }
+
+        return tiers;
+    }
+
+    private buildLazyLadderPassCandidates(
+        preprocessor: any,
+        passIndex: number,
+        variantMode: "normal" | "inverted"
+    ): DecodeCanvasCandidate[] {
+        const processed = preprocessor.processExplicitPassWithMetadata(
+            this.canvasElement!,
+            passIndex,
+            variantMode
+        );
+        return this.mapPreprocessingCandidatesToDecode(processed);
+    }
+
     private createRawDecodeCandidate(): DecodeCanvasCandidate {
         return {
             canvas: this.canvasElement!,
@@ -1941,27 +2312,43 @@ export class Html5Qrcode {
     }
 
     private createDirectZxingWasmCandidate(): DecodeCanvasCandidate | null {
-        if (
-            (this.zxingWasmProcessing !== "invert"
-                && this.zxingWasmProcessing !== "dual")
-            || !this.canvasElement
-        ) {
+        if (this.zxingWasmProcessing === "invert"
+            || this.zxingWasmProcessing === "invert-sharp") {
+            return this.createDirectZxingWasmCandidateWithMode(
+                this.zxingWasmProcessing);
+        }
+
+        return null;
+    }
+
+    private createDirectZxingWasmCandidateWithMode(
+        mode: "invert" | "invert-sharp"
+    ): DecodeCanvasCandidate | null {
+        if (!this.canvasElement) {
             return null;
         }
 
+        const variantLabel = mode === "invert-sharp"
+            ? "zxing-wasm direct invert-sharp"
+            : "zxing-wasm direct invert";
+
         return this.createZxingWasmInvertCandidateFromCanvas(
             this.canvasElement,
-            "zxing-wasm direct invert",
+            variantLabel,
             {
                 enabled: true,
-                directMode: "zxing-wasm-processing-invert"
-            });
+                directMode: mode === "invert-sharp"
+                    ? "zxing-wasm-processing-invert-sharp"
+                    : "zxing-wasm-processing-invert"
+            },
+            mode);
     }
 
     private createZxingWasmInvertCandidateFromCanvas(
         sourceCanvas: HTMLCanvasElement,
         variantLabel: string,
-        preprocessingSnapshot: any
+        preprocessingSnapshot: any,
+        processingMode?: "invert" | "invert-sharp"
     ): DecodeCanvasCandidate | null {
         if (!sourceCanvas) {
             return null;
@@ -1982,14 +2369,28 @@ export class Html5Qrcode {
         const imageData = directContext.getImageData(
             0, 0, directCanvas.width, directCanvas.height);
         const data = imageData.data;
+        const highlightClip = this.zxingWasmHighlightClip;
+        const sharpenMode = processingMode
+            || (this.zxingWasmProcessing === "invert-sharp" ? "invert-sharp" : "invert");
         for (let i = 0; i < data.length; i += 4) {
             // Mirrors zxing-wasm-mobile.html processing=invert exactly enough:
             // derive grayscale from the red channel and invert it.
-            const value = 255 - data[i];
+            let red = data[i];
+            if (highlightClip > 0 && red > highlightClip) {
+                red = highlightClip + ((red - highlightClip) * 0.35);
+            }
+            const value = 255 - red;
             data[i] = value;
             data[i + 1] = value;
             data[i + 2] = value;
             data[i + 3] = 255;
+        }
+        if (sharpenMode === "invert-sharp") {
+            this.applyWasmSharpenToImageData(
+                imageData,
+                directCanvas.width,
+                directCanvas.height,
+                this.zxingWasmSharpenAmount);
         }
         directContext.putImageData(imageData, 0, 0);
 
@@ -2003,6 +2404,45 @@ export class Html5Qrcode {
     }
 
     /**
+     * Lightweight unsharp mask for invert-sharp foil path (matches benchmark tuning).
+     */
+    private applyWasmSharpenToImageData(
+        imageData: ImageData,
+        width: number,
+        height: number,
+        intensity: number
+    ): void {
+        const data = imageData.data;
+        const original = new Uint8ClampedArray(data);
+        const kernel = [
+            0, -1, 0,
+            -1, 5, -1,
+            0, -1, 0
+        ];
+        const clamp = (value: number): number => {
+            return Math.max(0, Math.min(255, Math.round(value)));
+        };
+
+        for (let y = 1; y < height - 1; y += 1) {
+            for (let x = 1; x < width - 1; x += 1) {
+                for (let c = 0; c < 3; c += 1) {
+                    let sum = 0;
+                    for (let ky = -1; ky <= 1; ky += 1) {
+                        for (let kx = -1; kx <= 1; kx += 1) {
+                            const idx = ((y + ky) * width + (x + kx)) * 4 + c;
+                            sum += original[idx] * kernel[(ky + 1) * 3 + (kx + 1)];
+                        }
+                    }
+                    const idx = (y * width + x) * 4 + c;
+                    data[idx] = clamp(
+                        original[idx] * (1 - intensity) + sum * intensity
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Decode using multiple canvases (e.g., inverted variants) sequentially.
      */
     private async decodeWithCanvases(
@@ -2010,11 +2450,9 @@ export class Html5Qrcode {
         qrCodeSuccessCallback: QrcodeSuccessCallback,
         qrCodeErrorCallback: QrcodeErrorCallback
     ): Promise<boolean> {
-        let lastError: any = null;
         const frameId = ++this.debugFrameId;
         const candidateCount = candidates.length;
         const sourceMeta = this.getDebugSourceRegionMeta();
-        const decodeAttempts = this.buildDecodeAttempts(candidates);
 
         if (this.debugCandidateMode === "all") {
             candidates.forEach((candidate, index) => {
@@ -2033,50 +2471,224 @@ export class Html5Qrcode {
             });
         }
 
+        const tierResult = await this.decodeCandidateTier(
+            candidates,
+            frameId,
+            qrCodeSuccessCallback);
+        if (tierResult.success) {
+            this.possiblyUpdateShaders(/* qrMatch= */ true);
+            return true;
+        }
+
+        this.possiblyUpdateShaders(/* qrMatch= */ false);
+        const errorMessage = Html5QrcodeStrings.codeParseError(
+            tierResult.lastError ?? "No code detected");
+        qrCodeErrorCallback(
+            errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
+        return false;
+    }
+
+    private async decodeCandidateTier(
+        candidates: DecodeCanvasCandidate[],
+        frameId: number,
+        qrCodeSuccessCallback: QrcodeSuccessCallback
+    ): Promise<{ success: boolean, lastError: any }> {
+        const candidateCount = candidates.length;
+        const decodeAttempts = this.buildDecodeAttempts(candidates);
+
+        if (this.zxingWasmParallelLadder && decodeAttempts.length > 1) {
+            return this.decodeCandidateTierParallel(
+                decodeAttempts,
+                frameId,
+                candidateCount,
+                qrCodeSuccessCallback);
+        }
+
+        return this.decodeCandidateTierSequential(
+            decodeAttempts,
+            frameId,
+            candidateCount,
+            qrCodeSuccessCallback);
+    }
+
+    private buildCandidateMeta(
+        decodeAttempt: DecodeCanvasAttempt,
+        frameId: number,
+        candidateCount: number,
+        extra?: Partial<Html5QrcodeDebugMeta>
+    ): Html5QrcodeDebugMeta {
+        const candidate = decodeAttempt.candidate;
+        return {
+            frameId: frameId,
+            candidateIndex: decodeAttempt.candidateIndex + 1,
+            candidateCount: candidateCount,
+            variantLabel: candidate.variantLabel,
+            inverted: candidate.inverted,
+            rotationAngle: candidate.rotationAngle,
+            preprocessingSnapshot: candidate.preprocessingSnapshot,
+            attempted: true,
+            successful: false,
+            ...this.getDebugSourceRegionMeta(),
+            ...(extra || {})
+        };
+    }
+
+    private async decodeSingleCandidateAttempt(
+        decodeAttempt: DecodeCanvasAttempt
+    ): Promise<QrcodeResult> {
+        const candidate = decodeAttempt.candidate;
+        const shim = this.qrcode as Html5QrcodeShim;
+        return candidate.decodeOverrides
+            ? await shim.decodeAsync(
+                candidate.canvas, candidate.decodeOverrides)
+            : await shim.decodeAsync(candidate.canvas);
+    }
+
+    private finalizeSuccessfulCandidateDecode(
+        result: QrcodeResult,
+        candidate: DecodeCanvasCandidate,
+        candidateMeta: Html5QrcodeDebugMeta,
+        qrCodeSuccessCallback: QrcodeSuccessCallback
+    ): void {
+        this.attachDecodeFrameDebugData(
+            result,
+            candidate.canvas,
+            candidateMeta);
+        this.emitDebugCanvas(candidate.canvas, {
+            ...candidateMeta,
+            successful: true
+        });
+        qrCodeSuccessCallback(
+            result.text,
+            Html5QrcodeResultFactory.createFromQrcodeResult(result));
+    }
+
+    private async decodeCandidateTierSequential(
+        decodeAttempts: DecodeCanvasAttempt[],
+        frameId: number,
+        candidateCount: number,
+        qrCodeSuccessCallback: QrcodeSuccessCallback
+    ): Promise<{ success: boolean, lastError: any }> {
+        let lastError: any = null;
+
         for (let index = 0; index < decodeAttempts.length; index++) {
             const decodeAttempt = decodeAttempts[index];
             const candidate = decodeAttempt.candidate;
-            const candidateMeta = {
-                frameId: frameId,
-                candidateIndex: decodeAttempt.candidateIndex + 1,
-                candidateCount: candidateCount,
-                variantLabel: candidate.variantLabel,
-                inverted: candidate.inverted,
-                rotationAngle: candidate.rotationAngle,
-                preprocessingSnapshot: candidate.preprocessingSnapshot,
-                attempted: true,
-                successful: false,
-                ...sourceMeta
-            };
+            const candidateMeta = this.buildCandidateMeta(
+                decodeAttempt, frameId, candidateCount);
             this.emitDebugCanvas(candidate.canvas, candidateMeta);
 
             try {
-                const result = await this.qrcode.decodeAsync(candidate.canvas);
-                this.attachDecodeFrameDebugData(
-                    result,
-                    candidate.canvas,
-                    candidateMeta);
-                this.emitDebugCanvas(candidate.canvas, {
-                    ...candidateMeta,
-                    successful: true
-                });
-                qrCodeSuccessCallback(
-                    result.text,
-                    Html5QrcodeResultFactory.createFromQrcodeResult(
-                        result));
-                this.possiblyUpdateShaders(/* qrMatch= */ true);
-                return true;
+                const result = await this.decodeSingleCandidateAttempt(
+                    decodeAttempt);
+                this.finalizeSuccessfulCandidateDecode(
+                    result, candidate, candidateMeta, qrCodeSuccessCallback);
+                return { success: true, lastError: null };
             } catch (error) {
                 lastError = error;
             }
         }
 
-        this.possiblyUpdateShaders(/* qrMatch= */ false);
-        const errorMessage = Html5QrcodeStrings.codeParseError(
-            lastError ?? "No code detected");
-        qrCodeErrorCallback(
-            errorMessage, Html5QrcodeErrorFactory.createFrom(errorMessage));
-        return false;
+        return { success: false, lastError: lastError };
+    }
+
+    private async decodeCandidateTierParallel(
+        decodeAttempts: DecodeCanvasAttempt[],
+        frameId: number,
+        candidateCount: number,
+        qrCodeSuccessCallback: QrcodeSuccessCallback
+    ): Promise<{ success: boolean, lastError: any }> {
+        const parallelStartedAt = performance.now();
+        const shim = this.qrcode as Html5QrcodeShim;
+
+        decodeAttempts.forEach((decodeAttempt) => {
+            const candidateMeta = this.buildCandidateMeta(
+                decodeAttempt,
+                frameId,
+                candidateCount,
+                { parallelLadder: true });
+            this.emitDebugCanvas(
+                decodeAttempt.candidate.canvas, candidateMeta);
+        });
+
+        const decodePromises = decodeAttempts.map((decodeAttempt) => {
+            const candidate = decodeAttempt.candidate;
+            const candidateMeta = this.buildCandidateMeta(
+                decodeAttempt,
+                frameId,
+                candidateCount,
+                { parallelLadder: true });
+            const startedAt = performance.now();
+
+            const decodePromise = candidate.decodeOverrides
+                ? shim.decodeAsync(
+                    candidate.canvas, candidate.decodeOverrides)
+                : shim.decodeAsync(candidate.canvas);
+
+            return decodePromise.then((result) => {
+                return {
+                    result: result,
+                    candidate: candidate,
+                    candidateMeta: {
+                        ...candidateMeta,
+                        decodeWallMs: performance.now() - startedAt
+                    }
+                };
+            });
+        });
+
+        try {
+            const winner = await Html5Qrcode.promiseAny(decodePromises);
+            winner.candidateMeta.decodeWallMs = winner.candidateMeta.decodeWallMs
+                ?? (performance.now() - parallelStartedAt);
+            const parallelDebugData: any = winner.result.debugData || {};
+            parallelDebugData.decodeParallelism = "parallel-ladder";
+            parallelDebugData.decodeParallelWallMs
+                = performance.now() - parallelStartedAt;
+            winner.result.debugData = parallelDebugData;
+            this.finalizeSuccessfulCandidateDecode(
+                winner.result,
+                winner.candidate,
+                winner.candidateMeta,
+                qrCodeSuccessCallback);
+            return { success: true, lastError: null };
+        } catch (errors) {
+            let lastError: any = null;
+            if (Array.isArray(errors)) {
+                errors.forEach((error: any) => {
+                    lastError = error;
+                });
+            } else {
+                lastError = errors;
+            }
+            return { success: false, lastError: lastError };
+        }
+    }
+
+    /**
+     * Promise.any polyfill for ES2020 build targets.
+     */
+    private static promiseAny<T>(
+        promises: Array<Promise<T>>
+    ): Promise<T> {
+        return new Promise((resolve, reject) => {
+            const errors: any[] = [];
+            let rejectedCount = 0;
+            if (promises.length === 0) {
+                reject([]);
+                return;
+            }
+
+            promises.forEach((promise, index) => {
+                Promise.resolve(promise).then(resolve, (error) => {
+                    errors[index] = error;
+                    rejectedCount += 1;
+                    if (rejectedCount === promises.length) {
+                        reject(errors);
+                    }
+                });
+            });
+        });
     }
 
     private attachDecodeFrameDebugData(
