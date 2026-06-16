@@ -12,6 +12,16 @@
  * http://www.denso-wave.com/qrcode/faqpatent-e.html
  */
 
+const jtiHtml5QrcodeRevision = "20260529-ios-surface-diag1";
+
+if (typeof window !== "undefined") {
+    const host = window as any;
+    host.__JTI_HTML5_QRCODE_REVISION = jtiHtml5QrcodeRevision;
+    if (!Array.isArray(host.__JTI_HTML5_QRCODE_SURFACE_EVENTS)) {
+        host.__JTI_HTML5_QRCODE_SURFACE_EVENTS = [];
+    }
+}
+
 export {
     Html5Qrcode,
     Html5QrcodeFullConfig,
